@@ -1,0 +1,15 @@
+{
+  "name": "generator-interpreter",
+  "version": "0.1.0",
+  "description": "Pip — a small dynamic language whose evaluator is a generator",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}
