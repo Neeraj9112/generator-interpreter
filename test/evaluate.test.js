@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.js';
+import { Env } from '../src/env.js';
 import { evaluate, run, isTruthy, EvalError } from '../src/evaluate.js';
 
 /** @typedef {import('../src/evaluate.js').Step} Step */
@@ -38,7 +39,7 @@ function drain(iter) {
 
 test('steps through 1 + 2 * 3 in evaluation order', () => {
   const program = parse('1 + 2 * 3');
-  const { steps, value } = drain(evaluate(program, {}));
+  const { steps, value } = drain(evaluate(program, new Env()));
 
   assert.equal(value, 7);
   assert.deepEqual(steps, [
@@ -97,25 +98,26 @@ test('unary - and !', () => {
   assert.throws(() => run(parse('-"a"')), EvalError);
 });
 
-test('truthiness: only false, 0 and "" are falsy', () => {
+test('truthiness: only false, 0, "" and nothing are falsy', () => {
   assert.equal(isTruthy(false), false);
   assert.equal(isTruthy(0), false);
   assert.equal(isTruthy(''), false);
+  assert.equal(isTruthy(undefined), false);
   assert.equal(isTruthy(true), true);
   assert.equal(isTruthy(1), true);
   assert.equal(isTruthy('a'), true);
 });
 
 test('&& and || short-circuit: the untaken side is never entered', () => {
-  const falsyAnd = drain(evaluate(parse('0 && 5'), {}));
+  const falsyAnd = drain(evaluate(parse('0 && 5'), new Env()));
   assert.equal(falsyAnd.value, 0);
   assert.ok(!falsyAnd.steps.some((s) => s.includes('Number(5)')));
 
-  const truthyOr = drain(evaluate(parse('1 || 5'), {}));
+  const truthyOr = drain(evaluate(parse('1 || 5'), new Env()));
   assert.equal(truthyOr.value, 1);
   assert.ok(!truthyOr.steps.some((s) => s.includes('Number(5)')));
 
-  const falsyOr = drain(evaluate(parse('0 || 5'), {}));
+  const falsyOr = drain(evaluate(parse('0 || 5'), new Env()));
   assert.equal(falsyOr.value, 5);
   assert.ok(falsyOr.steps.some((s) => s.includes('Number(5)')));
 });
@@ -124,6 +126,6 @@ test('run() drains the iterator and returns the final value', () => {
   assert.equal(run(parse('1 + 2 * 3')), 7);
 });
 
-test('nodes without a Phase 2 rule raise EvalError', () => {
+test('reading an unbound name raises EvalError', () => {
   assert.throws(() => run(parse('x')), EvalError);
 });
