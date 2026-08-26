@@ -228,3 +228,20 @@ function describe(value) {
   if (typeof value === 'string') return `string ${JSON.stringify(value)}`;
   return `${typeof value} ${value}`;
 }
+
+/**
+ * Drain the iterator for non-debug use: run to completion and return the
+ * final value, discarding every intermediate step.
+ * @param {Node} node
+ * @param {unknown} [env]
+ * @returns {Value}
+ */
+export function run(node, env = {}) {
+  const iter = evaluate(node, env);
+  /** @type {IteratorResult<Step, Value>} */
+  let step = iter.next();
+  while (!step.done) {
+    step = iter.next();
+  }
+  return step.value;
+}
