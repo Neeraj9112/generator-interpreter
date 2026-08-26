@@ -5,22 +5,27 @@ breakpoints, and step-back fall out of the design instead of being bolted on.
 
 See `plan.md` for the roadmap.
 
-## Values (Phase 2)
+## Values
 
-Numbers, strings, and booleans. `Identifier`, functions, and everything else
-that needs scope arrives in Phase 3.
+Numbers, strings, booleans, and functions. There is also *nothing*, which is
+what a function that never returns hands back and what an empty program
+evaluates to. The language has no literal for it, so the only way to get one
+is to not return anything.
 
 ## Truthiness
 
-Falsy is exactly `false`, `0`, and `""`. Every other value — including every
-nonzero number and every non-empty string — is truthy.
+Falsy is exactly `false`, `0`, `""`, and nothing. Every other value —
+including every nonzero number, every non-empty string, and every function —
+is truthy.
 
 ## Operators
 
 - `+` concatenates if either side is a string, otherwise adds two numbers.
-  `"x" + 1` is `"x1"`; `1 + "x"` is `"1x"`.
+  `"x" + 1` is `"x1"`; `1 + "x"` is `"1x"`. Only numbers, strings and booleans
+  splice into a string; a function or nothing on either side is an error.
 - `- * / %` require both sides to be numbers.
-- `== !=` are strict — no coercion. `1 == "1"` is `false`.
+- `== !=` are strict — no coercion. `1 == "1"` is `false`, and functions
+  compare by identity.
 - `< <= > >=` compare two numbers or two strings (by UTF-16 code unit); mixing
   types, or ordering a boolean, is a runtime `EvalError`.
 - `&& ||` short-circuit and return whichever operand decided the result
@@ -28,3 +33,63 @@ nonzero number and every non-empty string — is truthy.
   never yields its enter/exit steps either.
 - Unary `!` returns the boolean negation of truthiness; unary `-` requires a
   number.
+
+## Scope
+
+A scope is a `Map` of its own bindings plus a link to the scope around it, so
+resolving a name walks outward until some scope binds it.
+
+- `let` binds in the current scope. A second `let` for the same name in the
+  same scope is an error; a `let` in an inner scope shadows the outer binding
+  for as long as the inner scope lives.
+- Assignment writes to whichever scope already owns the name, and never
+  declares one, so assigning to an unbound name is an error.
+- Blocks push a scope. So do calls.
+
+## Functions and closures
+
+`fn` binds a function in the scope it was declared in, which is also the scope
+the function captures. Two things follow from that: a function can call
+itself, and it resolves free names where it was written rather than where it
+was called.
+
+A call pushes a scope whose parent is the captured one, so two functions built
+by the same factory get separate parents and their captured variables never
+meet.
+
+```pip
+fn makeCounter() {
+  let n = 0
+  fn inc() {
+    n = n + 1
+    return n
+  }
+  return inc
+}
+
+let a = makeCounter()
+let b = makeCounter()
+
+a()   // 1
+a()   // 2
+b()   // 1, because b has its own n
+```
+
+The closure and its defining scope share the binding itself rather than a copy
+of the value, so a write on either side is visible to the other. Calls check
+arity, and calling something that isn't a function is an error.
+
+## Non-local exits
+
+`return`, `break`, `continue`, and runtime errors are all one mechanism: a
+sentinel that an evaluator returns in place of a value, and that every caller
+passes outward until something catches it. Loops catch `break` and `continue`,
+calls catch `return`, and `run()` catches an error and rethrows it as an
+`EvalError`. A sentinel that reaches somewhere nothing catches it turns into
+an error, because a `break` with no loop around it is a mistake.
+
+The reason it is a value rather than a JS `throw`: a throw travelling up the
+`yield*` chain would skip every pause point on the way out, so a debugger
+would watch the interpreter vanish mid-expression. As a value it lands on the
+exit step of every node it passes through, which makes an unwind something you
+can step through like anything else.
