@@ -107,17 +107,26 @@ over `file://` are blocked, not because anything gets compiled.
 `print` is the one builtin, and it writes to the output pane. It takes a single
 argument, renders strings bare, and hands back nothing.
 
-Five controls. Step-line and step-over are the ones that make the page usable;
-raw stepping on its own is too fine-grained to navigate with:
+Five controls, each with its keyboard letter lit in the label. `line` and
+`over` are the ones that make the page usable; raw stepping on its own is too
+fine-grained to navigate with:
 
-- **Step** takes one `yield`. Every node has an enter and an exit step, which
+- `step` takes one `yield`. Every node has an enter and an exit step, which
   makes `1 + 2 * 3` about ten of them.
-- **Step line** runs until the current node starts on a different line, and
-  will descend into a call to get there.
-- **Step over** does the same but waits out any call that starts on the way,
-  so you skip a function body instead of walking it.
-- **Run** goes to the end, or to the next breakpoint.
-- **Reset** rewinds to the first step. Breakpoints stay.
+- `line` runs until the current node starts on a different line, and will
+  descend into a call to get there.
+- `over` does the same but waits out any call that starts on the way, so you
+  skip a function body instead of walking it.
+- `run` goes to the end, or to the next breakpoint.
+- `reset` rewinds to the first step. Breakpoints stay.
+
+The strip across the top is the yield stream itself, one column per step,
+rising with every enter and falling with every exit. A subtree comes out as an
+arch, a loop as a row of identical teeth, and a deep call as a tall block, so
+the shape of a run is readable at a glance rather than only one instant of it.
+The cursor sits where execution is paused. Columns widen to fill the strip
+while a run is short; past a few thousand steps the trace keeps only the most
+recent window and says how many it dropped.
 
 Click a line number to set a breakpoint. A breakpoint fires when execution
 *arrives* at the line from somewhere else, so a run stops once per visit rather
@@ -130,7 +139,7 @@ than a copy taken when the step was yielded.
 A call pushes two scopes rather than one: the parameters go in the call frame,
 and the body gets a scope of its own, because the body is an ordinary block.
 Inside a closure those stack up and most of them are empty, so the pane leaves
-empty scopes out until you tick **empty scopes** in its header.
+empty scopes out until you tick `empty` in its header.
 
 When something fails, the call-stack pane freezes the stack as it stood at the
 moment of failure. The live stack has already unwound to nothing by the time
