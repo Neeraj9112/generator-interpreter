@@ -23,6 +23,7 @@ const ui = {
   status: el('status'),
   failure: el('failure'),
   edit: el('edit'),
+  showEmpty: /** @type {HTMLInputElement} */ (el('show-empty')),
 };
 
 /** @type {Record<string, HTMLButtonElement>} */
@@ -127,7 +128,12 @@ function renderScopes() {
     ui.scopes.append(note('Nothing running.'));
     return;
   }
-  for (const scope of dbg.scopes()) {
+  // A call pushes two scopes, one for the parameters and one for the body
+  // block, and a closure chain stacks several of them. The empty ones are
+  // real, but three blank boxes above the scope you came to read is a poor
+  // first impression, so they are off by default rather than gone.
+  const scopes = dbg.scopes().filter((scope) => ui.showEmpty.checked || scope.bindings.length > 0);
+  for (const scope of scopes) {
     const block = document.createElement('div');
     block.className = 'scope';
 
@@ -296,6 +302,8 @@ ui.edit.addEventListener('click', () => {
   render();
   ui.editor.focus();
 });
+
+ui.showEmpty.addEventListener('change', render);
 
 ui.source.addEventListener('click', (event) => {
   const target = event.target;

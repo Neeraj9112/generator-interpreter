@@ -125,9 +125,12 @@ than once per step taken while sitting there.
 
 The scopes pane walks the env chain from the innermost scope outward and reads
 each `Map` at the moment it draws, so what you see is the live binding rather
-than a copy taken when the step was yielded. A call shows up as two scopes: one
-holding the parameters, one for the body block, because the body is an ordinary
-block and pushes its own.
+than a copy taken when the step was yielded.
+
+A call pushes two scopes rather than one: the parameters go in the call frame,
+and the body gets a scope of its own, because the body is an ordinary block.
+Inside a closure those stack up and most of them are empty, so the pane leaves
+empty scopes out until you tick **empty scopes** in its header.
 
 When something fails, the call-stack pane freezes the stack as it stood at the
 moment of failure. The live stack has already unwound to nothing by the time

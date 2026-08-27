@@ -45,6 +45,9 @@ h1 {
 }
 
 h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   margin: 0;
   padding: 8px 12px;
   font-size: 11px;
@@ -61,6 +64,19 @@ h2 small {
   text-transform: none;
   opacity: 0.7;
 }
+
+.toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.toggle input { margin: 0; cursor: pointer; }
 
 .controls { display: flex; gap: 6px; align-items: center; }
 .controls .spacer { width: 12px; }
