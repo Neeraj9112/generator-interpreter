@@ -1,9 +1,22 @@
 # Pip
 
-A small dynamic language whose evaluator is a generator, so single-stepping,
-breakpoints, and step-back fall out of the design instead of being bolted on.
+A small dynamic language whose evaluator is a generator. Stepping the
+interpreter is a call to `.next()`, so single-stepping, breakpoints, and
+eventually step-back fall out of the design instead of being bolted on.
 
-See `plan.md` for the roadmap.
+**[Open the debugger](https://neeraj9112.github.io/generator-interpreter/)**
+
+[![The Pip debugger paused on a breakpoint inside a closure](docs/debugger.png)](https://neeraj9112.github.io/generator-interpreter/)
+
+Vanilla JS, no runtime dependencies and no build step. The page loads `src/`
+into the browser as ES modules; `typescript` and `@types/node` are dev
+dependencies that type-check the JavaScript through JSDoc and compile nothing.
+
+```
+npm test        # node:test
+npm run typecheck
+npm run web     # the debugger on localhost:8080
+```
 
 ## Values
 
@@ -96,13 +109,8 @@ can step through like anything else.
 
 ## The debugger
 
-```
-npm run web
-```
-
-Then open <http://localhost:8080/>. The page is plain ESM with no build step,
-so the browser loads `src/` directly; the server exists because module imports
-over `file://` are blocked, not because anything gets compiled.
+`npm run web` serves it on <http://localhost:8080/>. The server exists because
+module imports over `file://` are blocked, not because anything gets compiled.
 
 `print` is the one builtin, and it writes to the output pane. It takes a single
 argument, renders strings bare, and hands back nothing.
