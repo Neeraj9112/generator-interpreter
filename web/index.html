@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pip debugger</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<header>
+  <h1>Pip</h1>
+  <div class="controls">
+    <button id="step" title="One yield (S)">Step</button>
+    <button id="step-line" title="Into, one line (L)">Step line</button>
+    <button id="step-over" title="Over, one line (O)">Step over</button>
+    <button id="run" title="To the end or the next breakpoint (R)">Run</button>
+    <button id="reset" title="Back to the start (E)">Reset</button>
+    <span class="spacer"></span>
+    <button id="edit" title="Swap the source pane for an editor">Edit source</button>
+  </div>
+  <p id="status" class="status">Ready.</p>
+</header>
+
+<p id="failure" class="failure" hidden></p>
+
+<main>
+  <section class="pane pane-source">
+    <h2>Source <small>click a line number to set a breakpoint</small></h2>
+    <div id="source" class="source"></div>
+    <textarea id="editor" class="editor" spellcheck="false" hidden>fn makeCounter() {
+  let n = 0
+  fn inc() {
+    n = n + 1
+    return n
+  }
+  return inc
+}
+
+let a = makeCounter()
+let b = makeCounter()
+
+print(a())
+print(a())
+print(b())
+</textarea>
+  </section>
+
+  <aside>
+    <section class="pane">
+      <h2>
+        Scopes <small>innermost first</small>
+        <label class="toggle"><input type="checkbox" id="show-empty"> empty scopes</label>
+      </h2>
+      <div id="scopes" class="scopes"></div>
+    </section>
+    <section class="pane">
+      <h2>Call stack</h2>
+      <div id="stack" class="stack"></div>
+    </section>
+    <section class="pane pane-output">
+      <h2>Output <small>whatever <code>print</code> wrote</small></h2>
+      <pre id="output" class="output"></pre>
+    </section>
+  </aside>
+</main>
+
+<script type="module" src="./ui.js"></script>
+</body>
+</html>

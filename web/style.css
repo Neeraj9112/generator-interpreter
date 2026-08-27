@@ -1,0 +1,212 @@
+:root {
+  --bg: #14161a;
+  --panel: #1b1e24;
+  --panel-2: #21252c;
+  --line: #2c313a;
+  --text: #d7dce4;
+  --dim: #7f8894;
+  --accent: #7fb3ff;
+  --mark: #3a4a63;
+  --mark-edge: #6f9ae0;
+  --stop: #e05a5a;
+  --ok: #6fcf8e;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* The panes that toggle set `display`, which outranks the UA rule for the
+   hidden attribute and leaves both halves of a toggle on screen at once. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--mono);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+}
+
+h2 small {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
+}
+
+.toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.toggle input { margin: 0; cursor: pointer; }
+
+.controls { display: flex; gap: 6px; align-items: center; }
+.controls .spacer { width: 12px; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: 0.35; cursor: default; }
+button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+.status { margin: 0 0 0 auto; color: var(--dim); }
+.status b { color: var(--text); font-weight: 600; }
+
+.failure {
+  margin: 0;
+  padding: 10px 16px;
+  background: #3a1e1e;
+  border-bottom: 1px solid #5c2b2b;
+  color: #ffc9c9;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 12px;
+  padding: 12px;
+  align-items: start;
+}
+
+aside { display: grid; gap: 12px; min-width: 0; }
+
+.pane {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Source pane */
+
+.source { padding: 8px 0; overflow-x: auto; }
+
+.row { display: grid; grid-template-columns: 3.5em 1fr; align-items: start; }
+.row.current { background: #1f2836; }
+
+.gutter {
+  font: inherit;
+  color: var(--dim);
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: right;
+  padding: 0 10px 0 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.gutter:hover { color: var(--accent); }
+.gutter.breakpoint { color: var(--stop); font-weight: 700; }
+.gutter.breakpoint::before { content: "●"; margin-right: 4px; }
+
+.code {
+  white-space: pre;
+  padding-right: 16px;
+  min-height: 1.5em;
+}
+
+.code mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+  box-shadow: inset 0 -2px 0 var(--mark-edge);
+}
+
+.editor {
+  display: block;
+  width: 100%;
+  min-height: 22em;
+  resize: vertical;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: none;
+  padding: 8px 12px;
+  outline: none;
+}
+
+/* Inspector panes */
+
+.scopes, .stack { padding: 8px 12px; }
+
+.scope + .scope { margin-top: 10px; }
+
+.scope-label {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.binding { display: flex; gap: 8px; padding-left: 10px; }
+.binding .name { color: var(--accent); }
+.binding .value { color: var(--text); overflow-wrap: anywhere; }
+
+.frame { padding-left: 10px; }
+.frame .name { color: var(--accent); }
+.frame .where { color: var(--dim); }
+.frame.top { color: var(--text); }
+
+.empty { color: var(--dim); font-style: italic; padding-left: 10px; }
+
+.output {
+  margin: 0;
+  padding: 8px 12px;
+  min-height: 6em;
+  max-height: 18em;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--ok);
+}
+
+@media (max-width: 860px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+}

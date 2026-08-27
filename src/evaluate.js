@@ -15,6 +15,7 @@ import { Env } from './env.js';
 /** @typedef {import('./parser.js').ReturnStatement} ReturnStatement */
 /** @typedef {import('./parser.js').FnDeclaration} FnDeclaration */
 /** @typedef {import('./parser.js').CallExpression} CallExpression */
+/** @typedef {import('./builtins.js').NativeFn} NativeFn */
 /** @typedef {Program|Statement|Expression} Node */
 
 /**
@@ -24,10 +25,11 @@ import { Env } from './env.js';
  */
 
 /**
- * Numbers, strings, booleans and functions. `undefined` is what a function
- * that never returns produces, and what an empty program evaluates to; the
- * language has no literal for it.
- * @typedef {number|string|boolean|undefined|FnValue} Value
+ * Numbers, strings, booleans and functions, where a function is either one
+ * written in Pip or a builtin. `undefined` is what a function that never
+ * returns produces, and what an empty program evaluates to; the language has
+ * no literal for it.
+ * @typedef {number|string|boolean|undefined|FnValue|NativeFn} Value
  */
 
 /** @typedef {'return'|'break'|'continue'|'error'} SignalKind */
@@ -342,11 +344,15 @@ function* evalCall(node, env) {
     args.push(value);
   }
 
-  if (!isFunction(callee)) return fail(node, `${describe(callee)} is not a function`);
-  const arity = callee.params.length;
+  if (!isCallable(callee)) return fail(node, `${describe(callee)} is not a function`);
+  const arity = callee.type === 'native' ? callee.arity : callee.params.length;
   if (args.length !== arity) {
     return fail(node, `${callee.name} expects ${arity} ${arity === 1 ? 'argument' : 'arguments'}, got ${args.length}`);
   }
+
+  // A builtin runs as a single step. There is no Pip body underneath it, so
+  // the CallExpression's own enter/exit pair is the whole of the call.
+  if (callee.type === 'native') return callee.call(args);
 
   const frame = callee.env.child();
   for (let i = 0; i < arity; i++) frame.define(callee.params[i].name, args[i]);
@@ -521,10 +527,12 @@ function orderStrings(operator, left, right) {
 }
 
 /**
+ * Both kinds of function are objects, and nothing else in the language is, so
+ * one check serves calling and `describe` alike.
  * @param {Value} value
- * @returns {value is FnValue}
+ * @returns {value is FnValue|NativeFn}
  */
-function isFunction(value) {
+function isCallable(value) {
   return typeof value === 'object' && value !== null;
 }
 
@@ -544,7 +552,7 @@ function isPrintable(value) {
 function describe(value) {
   if (value === undefined) return 'nothing';
   if (typeof value === 'string') return `string ${JSON.stringify(value)}`;
-  if (isFunction(value)) return `function ${value.name}`;
+  if (isCallable(value)) return `function ${value.name}`;
   return `${typeof value} ${value}`;
 }
 

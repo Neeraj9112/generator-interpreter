@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "test": "node --test",
-    "typecheck": "tsc -p jsconfig.json"
+    "typecheck": "tsc -p jsconfig.json",
+    "web": "node web/serve.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

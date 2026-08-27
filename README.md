@@ -93,3 +93,45 @@ The reason it is a value rather than a JS `throw`: a throw travelling up the
 would watch the interpreter vanish mid-expression. As a value it lands on the
 exit step of every node it passes through, which makes an unwind something you
 can step through like anything else.
+
+## The debugger
+
+```
+npm run web
+```
+
+Then open <http://localhost:8080/>. The page is plain ESM with no build step,
+so the browser loads `src/` directly; the server exists because module imports
+over `file://` are blocked, not because anything gets compiled.
+
+`print` is the one builtin, and it writes to the output pane. It takes a single
+argument, renders strings bare, and hands back nothing.
+
+Five controls. Step-line and step-over are the ones that make the page usable;
+raw stepping on its own is too fine-grained to navigate with:
+
+- **Step** takes one `yield`. Every node has an enter and an exit step, which
+  makes `1 + 2 * 3` about ten of them.
+- **Step line** runs until the current node starts on a different line, and
+  will descend into a call to get there.
+- **Step over** does the same but waits out any call that starts on the way,
+  so you skip a function body instead of walking it.
+- **Run** goes to the end, or to the next breakpoint.
+- **Reset** rewinds to the first step. Breakpoints stay.
+
+Click a line number to set a breakpoint. A breakpoint fires when execution
+*arrives* at the line from somewhere else, so a run stops once per visit rather
+than once per step taken while sitting there.
+
+The scopes pane walks the env chain from the innermost scope outward and reads
+each `Map` at the moment it draws, so what you see is the live binding rather
+than a copy taken when the step was yielded.
+
+A call pushes two scopes rather than one: the parameters go in the call frame,
+and the body gets a scope of its own, because the body is an ordinary block.
+Inside a closure those stack up and most of them are empty, so the pane leaves
+empty scopes out until you tick **empty scopes** in its header.
+
+When something fails, the call-stack pane freezes the stack as it stood at the
+moment of failure. The live stack has already unwound to nothing by the time
+the program stops, so drawing that one instead would leave the pane empty.
