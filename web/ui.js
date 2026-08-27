@@ -24,7 +24,13 @@ const ui = {
   failure: el('failure'),
   edit: el('edit'),
   showEmpty: /** @type {HTMLInputElement} */ (el('show-empty')),
+  ribbon: /** @type {HTMLCanvasElement} */ (el('ribbon')),
+  ribbonCount: el('ribbon-count'),
 };
+
+/** Pixels per step in the ribbon: it stretches between these to fill the strip. */
+const MIN_COLUMN = 2;
+const MAX_COLUMN = 10;
 
 /** @type {Record<string, HTMLButtonElement>} */
 const buttons = {
@@ -122,10 +128,93 @@ function renderSource() {
   });
 }
 
+/**
+ * The yield stream, drawn as a silhouette of nesting depth over time. Every
+ * step is one column: it rises with each `enter` and falls with each `exit`,
+ * so a subtree is an arch and a loop is a row of identical teeth. This is the
+ * one view that shows what the project is — execution as a sequence of pause
+ * points you can walk — rather than one instant of it.
+ *
+ * Canvas rather than elements because a run is thousands of columns wide and
+ * each is a few pixels; there is nothing here worth a DOM node.
+ */
+function renderRibbon() {
+  const canvas = ui.ribbon;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  if (width === 0 || height === 0) return;
+
+  const density = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * density);
+  canvas.height = Math.round(height * density);
+  const ctx = canvas.getContext('2d');
+  if (ctx === null) return;
+  ctx.setTransform(density, 0, 0, density, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const style = getComputedStyle(document.documentElement);
+  const ink = (/** @type {string} */ name) => style.getPropertyValue(name).trim();
+  const base = height - 1;
+
+  ctx.fillStyle = ink('--rule');
+  ctx.fillRect(0, base, width, 1);
+
+  if (dbg === null || dbg.trace.length === 0) {
+    ui.ribbonCount.textContent = '';
+    return;
+  }
+
+  // Columns widen to fill the strip while a run is short, so a fresh program
+  // reads as a skyline rather than a smudge in the corner. Once the trace is
+  // long enough to overflow at the minimum width, the view becomes a window
+  // onto the most recent steps instead.
+  let column;
+  let start;
+  if (dbg.trace.length * MIN_COLUMN > width) {
+    column = MIN_COLUMN;
+    start = dbg.trace.length - Math.floor(width / column);
+  } else {
+    column = Math.min(MAX_COLUMN, width / dbg.trace.length);
+    start = 0;
+  }
+
+  const window_ = dbg.trace.slice(start);
+  const deepest = Math.max(...window_.map((mark) => mark.depth), 1);
+  const usable = height - 8;
+
+  // Columns butt up against each other rather than leaving a gap, so the tops
+  // join into one continuous edge and the shape reads as a silhouette.
+  const span = column + 0.5;
+
+  window_.forEach((mark, index) => {
+    const x = index * column;
+    const y = base - Math.round((mark.depth / deepest) * usable);
+
+    ctx.fillStyle = ink('--sel');
+    ctx.fillRect(x, y, span, base - y);
+
+    ctx.fillStyle = mark.phase === 'enter' ? ink('--enter') : ink('--exit');
+    ctx.fillRect(x, y, span, 2);
+
+    if (dbg?.breakpoints.has(mark.line)) {
+      ctx.fillStyle = ink('--stop');
+      ctx.fillRect(x, base - 2, span, 2);
+    }
+  });
+
+  // The cursor sits on the last column, which is where execution is paused.
+  const cursor = (window_.length - 1) * column;
+  ctx.fillStyle = ink('--fg');
+  ctx.fillRect(cursor, 0, 1, height);
+
+  const dropped = dbg.dropped > 0 ? `, ${dbg.dropped} dropped` : '';
+  ui.ribbonCount.textContent = `${dbg.stepCount} steps, depth ${dbg.depth}${dropped}`;
+}
+
 function renderScopes() {
   ui.scopes.replaceChildren();
   if (dbg === null || dbg.current === null) {
-    ui.scopes.append(note('Nothing running.'));
+    ui.scopes.append(note('nothing running'));
     return;
   }
   // A call pushes two scopes, one for the parameters and one for the body
@@ -185,7 +274,7 @@ function frameRow(frame) {
 
 function renderStatus() {
   if (parseError !== null) {
-    ui.status.textContent = 'Source did not parse.';
+    ui.status.textContent = 'parse error';
     show(ui.failure, parseError);
     return;
   }
@@ -207,6 +296,7 @@ function renderStatus() {
 
 function render() {
   renderSource();
+  renderRibbon();
   renderScopes();
   renderStack();
   renderStatus();
@@ -221,7 +311,7 @@ function render() {
 
   ui.source.hidden = editing;
   ui.editor.hidden = !editing;
-  ui.edit.textContent = editing ? 'Load source' : 'Edit source';
+  ui.edit.textContent = editing ? 'load' : 'edit';
   ui.edit.setAttribute('aria-pressed', String(editing));
 }
 
@@ -304,6 +394,10 @@ ui.edit.addEventListener('click', () => {
 });
 
 ui.showEmpty.addEventListener('change', render);
+
+// The canvas is sized in CSS pixels, so a resize needs a redraw at the new
+// backing-store dimensions or the ribbon goes soft.
+window.addEventListener('resize', renderRibbon);
 
 ui.source.addEventListener('click', (event) => {
   const target = event.target;

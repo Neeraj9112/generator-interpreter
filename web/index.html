@@ -3,30 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pip debugger</title>
+<title>pip</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 
 <header>
-  <h1>Pip</h1>
-  <div class="controls">
-    <button id="step" title="One yield (S)">Step</button>
-    <button id="step-line" title="Into, one line (L)">Step line</button>
-    <button id="step-over" title="Over, one line (O)">Step over</button>
-    <button id="run" title="To the end or the next breakpoint (R)">Run</button>
-    <button id="reset" title="Back to the start (E)">Reset</button>
-    <span class="spacer"></span>
-    <button id="edit" title="Swap the source pane for an editor">Edit source</button>
-  </div>
-  <p id="status" class="status">Ready.</p>
+  <span class="brand">pip</span>
+  <span class="rule"></span>
+  <nav class="controls">
+    <button id="step"><span class="key">s</span>tep</button>
+    <button id="step-line"><span class="key">l</span>ine</button>
+    <button id="step-over"><span class="key">o</span>ver</button>
+    <button id="run" class="go"><span class="key">r</span>un</button>
+    <button id="reset" class="quiet">r<span class="key">e</span>set</button>
+    <button id="edit" class="quiet">edit</button>
+  </nav>
+  <span id="status" class="status">ready</span>
 </header>
+
+<section class="ribbon">
+  <canvas id="ribbon" height="56"></canvas>
+  <div class="ribbon-foot">
+    <span class="legend"><i class="swatch enter"></i>enter <i class="swatch exit"></i>exit <i class="swatch stop"></i>breakpoint</span>
+    <span id="ribbon-count" class="legend"></span>
+  </div>
+</section>
 
 <p id="failure" class="failure" hidden></p>
 
 <main>
-  <section class="pane pane-source">
-    <h2>Source <small>click a line number to set a breakpoint</small></h2>
+  <section class="source-pane">
+    <h2>source <small>click a line number to break</small></h2>
     <div id="source" class="source"></div>
     <textarea id="editor" class="editor" spellcheck="false" hidden>fn makeCounter() {
   let n = 0
@@ -47,19 +55,19 @@ print(b())
   </section>
 
   <aside>
-    <section class="pane">
+    <section>
       <h2>
-        Scopes <small>innermost first</small>
-        <label class="toggle"><input type="checkbox" id="show-empty"> empty scopes</label>
+        scopes <small>innermost first</small>
+        <label class="toggle"><input type="checkbox" id="show-empty"> empty</label>
       </h2>
       <div id="scopes" class="scopes"></div>
     </section>
-    <section class="pane">
-      <h2>Call stack</h2>
+    <section>
+      <h2>stack</h2>
       <div id="stack" class="stack"></div>
     </section>
-    <section class="pane pane-output">
-      <h2>Output <small>whatever <code>print</code> wrote</small></h2>
+    <section>
+      <h2>output <small>print</small></h2>
       <pre id="output" class="output"></pre>
     </section>
   </aside>

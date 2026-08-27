@@ -13,6 +13,7 @@ import { globals, format } from '../src/builtins.js';
 /** @typedef {import('../src/env.js').Env} Env */
 
 /** @typedef {{name: string, node: CallExpression, line: number}} Frame */
+/** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean}} Mark */
 /** @typedef {{message: string, node: Node, stack: Frame[]}} Failure */
 /** @typedef {{label: string, bindings: {name: string, value: Value}[]}} Scope */
 /** @typedef {'ready'|'paused'|'done'|'error'} Status */
@@ -26,6 +27,12 @@ import { globals, format } from '../src/builtins.js';
 export function inspect(value) {
   return typeof value === 'string' ? JSON.stringify(value) : format(value);
 }
+
+/**
+ * How many marks the ribbon keeps. A while loop yields without bound, and the
+ * recent window is the part anyone reads, so the front gets dropped.
+ */
+const TRACE_LIMIT = 4000;
 
 /**
  * Index of every line start, so a source index becomes a line number by
@@ -79,6 +86,17 @@ export class Debugger {
     /** @type {number|null} */
     this.previousLine = null;
 
+    /**
+     * One entry per yield, which is what the ribbon draws. Depth is the
+     * nesting of the node in the tree, and a node's enter and exit record the
+     * same one, so a subtree reads as a symmetric arch rather than a staircase.
+     * @type {Mark[]}
+     */
+    this.trace = [];
+    this.depth = 0;
+    /** Steps dropped off the front of the trace once it hit its cap. */
+    this.dropped = 0;
+
     /** @type {Env} */
     this.globalEnv = this.freshGlobals();
     /** Top-level bindings get a scope of their own, so the inspector can tell them from the builtins. @type {Env} */
@@ -104,6 +122,9 @@ export class Debugger {
     this.failure = null;
     this.stepCount = 0;
     this.previousLine = null;
+    this.trace = [];
+    this.depth = 0;
+    this.dropped = 0;
     this.globalEnv = this.freshGlobals();
     this.programEnv = this.globalEnv.child();
     this.iterator = evaluate(this.program, this.programEnv);
@@ -150,12 +171,14 @@ export class Debugger {
     if (!this.canStep) return false;
     this.previousLine = this.line;
     const result = this.iterator.next();
-    this.stepCount++;
     if (result.done) {
       this.current = null;
       this.finish(result.value);
       return false;
     }
+    // Counted after the done check: the last `.next()` yields nothing, and a
+    // step the user never got to see should not show up in the count.
+    this.stepCount++;
     this.status = 'paused';
     this.observe(result.value);
     return true;
@@ -249,6 +272,7 @@ export class Debugger {
    */
   observe(step) {
     this.current = step;
+    this.record(step);
 
     // Snapshot before the stack moves, so a call that fails on its own arity
     // still reports itself as the frame it failed in.
@@ -269,6 +293,37 @@ export class Debugger {
       });
     } else {
       this.stack.pop();
+    }
+  }
+
+  /**
+   * Append one mark to the trace. An `enter` opens a level and an `exit`
+   * closes it, so `depth` is just how many enters are still open.
+   *
+   * The trace has no natural end, and a loop will grow it without limit, so
+   * it keeps the most recent `TRACE_LIMIT` marks and counts what fell off.
+   * Dropping a quarter at a time keeps that from costing a shift per step.
+   * @param {Step} step
+   */
+  record(step) {
+    let depth;
+    if (step.phase === 'enter') {
+      this.depth++;
+      depth = this.depth;
+    } else {
+      depth = this.depth;
+      this.depth--;
+    }
+    this.trace.push({
+      depth,
+      phase: step.phase,
+      line: this.lineOf(step.node.span.start),
+      call: step.node.type === 'CallExpression',
+    });
+    if (this.trace.length > TRACE_LIMIT) {
+      const drop = Math.floor(TRACE_LIMIT / 4);
+      this.trace.splice(0, drop);
+      this.dropped += drop;
     }
   }
 

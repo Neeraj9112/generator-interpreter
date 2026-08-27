@@ -266,3 +266,49 @@ test('inspect quotes strings so they read apart from numbers', () => {
   assert.equal(inspect(1), '1');
   assert.equal(inspect(undefined), 'nothing');
 });
+
+test('the trace records one mark per step, enters and exits balanced', () => {
+  const dbg = new Debugger('1 + 2');
+  dbg.run();
+  assert.equal(dbg.trace.length, dbg.stepCount);
+  const enters = dbg.trace.filter((mark) => mark.phase === 'enter').length;
+  assert.equal(enters, dbg.trace.length / 2, 'every enter should have its exit');
+  assert.equal(dbg.depth, 0, 'and the tree should be fully closed by the end');
+});
+
+test('a node enters and exits at the same depth, so a subtree reads as an arch', () => {
+  const dbg = new Debugger('1 + 2');
+  dbg.run();
+  // Program, ExpressionStatement, BinaryExpression, then each operand in turn
+  // at the same level: up to 4 and back twice, not a staircase.
+  const depths = dbg.trace.map((mark) => mark.depth);
+  assert.deepEqual(depths, [1, 2, 3, 4, 4, 4, 4, 3, 2, 1]);
+});
+
+test('depth grows with the call stack', () => {
+  const dbg = new Debugger(ADD);
+  advanceTo(dbg, atEnterOf('ReturnStatement', 3));
+  const insideCall = dbg.depth;
+  dbg.run();
+  const outermost = dbg.trace[0].depth;
+  assert.ok(insideCall > outermost + 3, 'a call should nest several levels deeper than the program');
+});
+
+test('reset clears the trace with everything else', () => {
+  const dbg = new Debugger(COUNTER);
+  dbg.run();
+  assert.ok(dbg.trace.length > 0);
+  dbg.reset();
+  assert.deepEqual(dbg.trace, []);
+  assert.equal(dbg.depth, 0);
+  assert.equal(dbg.dropped, 0);
+});
+
+test('a long run caps the trace and counts what fell off the front', () => {
+  const dbg = new Debugger('let i = 0\nwhile (i < 400) {\n  i = i + 1\n}\n');
+  dbg.run();
+  assert.equal(dbg.status, 'done');
+  assert.ok(dbg.stepCount > 4000, 'the loop should outrun the cap');
+  assert.ok(dbg.trace.length <= 4000);
+  assert.equal(dbg.dropped + dbg.trace.length, dbg.stepCount);
+});

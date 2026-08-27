@@ -1,212 +1,245 @@
+/*
+  Terminal, committed. No cards, no rounding, no drop shadows: structure comes
+  from rules and alignment, the way a TUI gets it. The palette is warm on
+  purpose, since the cool slate-and-blue default is exactly the look this is
+  trying not to have.
+*/
+
 :root {
-  --bg: #14161a;
-  --panel: #1b1e24;
-  --panel-2: #21252c;
-  --line: #2c313a;
-  --text: #d7dce4;
-  --dim: #7f8894;
-  --accent: #7fb3ff;
-  --mark: #3a4a63;
-  --mark-edge: #6f9ae0;
-  --stop: #e05a5a;
-  --ok: #6fcf8e;
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --bg: #0d0d0f;
+  --fg: #cfccc4;
+  --dim: #6f6c64;
+  --rule: #252421;
+  --faint: #4d4a44;
+  --sel: #191815;
+  --accent: #d8a657;
+  --enter: #d8a657;
+  --exit: #7a6a4a;
+  --ok: #89b482;
+  --stop: #ea6962;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
 }
 
 * { box-sizing: border-box; }
 
-/* The panes that toggle set `display`, which outranks the UA rule for the
-   hidden attribute and leaves both halves of a toggle on screen at once. */
+/* Panes toggle by setting display, which outranks the UA rule for [hidden]
+   and leaves both halves of a toggle on screen at once. */
 [hidden] { display: none !important; }
 
 body {
   margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
-  color: var(--text);
-  font: 14px/1.5 var(--mono);
+  color: var(--fg);
+  font: 13px/1.6 var(--mono);
+  font-variant-ligatures: none;
 }
+
+/* Header */
 
 header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  gap: 14px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--rule);
 }
 
-h1 {
-  margin: 0;
-  font-size: 15px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+.brand {
   color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.05em;
 }
+
+header .rule {
+  width: 1px;
+  height: 14px;
+  background: var(--rule);
+}
+
+.controls { display: flex; gap: 2px; }
+
+button {
+  font: inherit;
+  color: var(--dim);
+  background: none;
+  border: 1px solid transparent;
+  padding: 2px 9px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { color: var(--fg); border-color: var(--rule); }
+button:disabled { opacity: 0.3; cursor: default; }
+
+/* The key hint doubles as the hierarchy: one letter lit on every control. */
+.key { color: var(--accent); }
+button:disabled .key { color: inherit; }
+
+.go { color: var(--fg); border-color: var(--rule); }
+.go:hover:not(:disabled) { background: var(--sel); }
+.quiet { opacity: 0.7; }
+.quiet .key { color: var(--dim); }
+
+.status { margin-left: auto; color: var(--dim); white-space: nowrap; }
+.status b { color: var(--fg); font-weight: 700; }
+
+.failure {
+  margin: 0;
+  padding: 8px 18px;
+  color: var(--stop);
+  border-bottom: 1px solid var(--rule);
+  background: #1a1211;
+}
+
+/* Ribbon: the yield stream, which is the thing this project is actually about */
+
+.ribbon { border-bottom: 1px solid var(--rule); padding: 10px 18px 6px; }
+
+#ribbon {
+  display: block;
+  width: 100%;
+  height: 56px;
+}
+
+.ribbon-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding-top: 6px;
+}
+
+.legend { color: var(--dim); font-size: 11px; white-space: nowrap; }
+.legend:last-child { margin-left: auto; }
+
+.swatch {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  margin-left: 10px;
+  vertical-align: baseline;
+}
+
+.legend .swatch:first-child { margin-left: 0; }
+.swatch.enter { background: var(--enter); }
+.swatch.exit { background: var(--exit); }
+.swatch.stop { background: var(--stop); }
+
+/* Body */
+
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+}
+
+aside { border-left: 1px solid var(--rule); min-width: 0; }
+aside section + section { border-top: 1px solid var(--rule); }
 
 h2 {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
-  padding: 8px 12px;
+  padding: 9px 18px;
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: 400;
   color: var(--dim);
-  border-bottom: 1px solid var(--line);
 }
 
-h2 small {
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  opacity: 0.7;
-}
+h2::before { content: "//"; color: var(--faint); }
+h2 small { color: var(--faint); }
 
 .toggle {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
+  gap: 5px;
   cursor: pointer;
 }
 
-.toggle input { margin: 0; cursor: pointer; }
-
-.controls { display: flex; gap: 6px; align-items: center; }
-.controls .spacer { width: 12px; }
-
-button {
-  font: inherit;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-button:disabled { opacity: 0.35; cursor: default; }
-button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-
-.status { margin: 0 0 0 auto; color: var(--dim); }
-.status b { color: var(--text); font-weight: 600; }
-
-.failure {
+.toggle input {
   margin: 0;
-  padding: 10px 16px;
-  background: #3a1e1e;
-  border-bottom: 1px solid #5c2b2b;
-  color: #ffc9c9;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
-  gap: 12px;
-  padding: 12px;
-  align-items: start;
-}
+/* Source */
 
-aside { display: grid; gap: 12px; min-width: 0; }
+.source { padding: 2px 0 18px; overflow-x: auto; }
 
-.pane {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-  min-width: 0;
-}
-
-/* Source pane */
-
-.source { padding: 8px 0; overflow-x: auto; }
-
-.row { display: grid; grid-template-columns: 3.5em 1fr; align-items: start; }
-.row.current { background: #1f2836; }
+.row { display: grid; grid-template-columns: 4.5em 1fr; }
+.row.current { background: var(--sel); }
 
 .gutter {
   font: inherit;
-  color: var(--dim);
-  background: none;
-  border: none;
-  border-radius: 0;
+  color: var(--faint);
+  padding: 0 12px 0 0;
   text-align: right;
-  padding: 0 10px 0 0;
-  cursor: pointer;
+  border: none;
   user-select: none;
 }
 
-.gutter:hover { color: var(--accent); }
-.gutter.breakpoint { color: var(--stop); font-weight: 700; }
-.gutter.breakpoint::before { content: "●"; margin-right: 4px; }
+.row.current .gutter { color: var(--accent); }
+.gutter:hover { color: var(--dim); }
+.gutter.breakpoint { color: var(--stop); }
+.gutter.breakpoint::before { content: "●"; margin-right: 5px; font-size: 9px; }
 
-.code {
-  white-space: pre;
-  padding-right: 16px;
-  min-height: 1.5em;
-}
+.code { white-space: pre; padding-right: 18px; min-height: 1.6em; color: var(--dim); }
+.row.current .code { color: var(--fg); }
 
 .code mark {
-  background: var(--mark);
-  color: inherit;
-  border-radius: 2px;
-  box-shadow: inset 0 -2px 0 var(--mark-edge);
+  background: none;
+  color: var(--accent);
+  border-bottom: 1px solid var(--accent);
 }
 
 .editor {
   display: block;
   width: 100%;
-  min-height: 22em;
+  min-height: 26em;
   resize: vertical;
   font: inherit;
-  color: var(--text);
-  background: var(--panel);
+  color: var(--fg);
+  background: var(--bg);
   border: none;
-  padding: 8px 12px;
+  border-top: 1px solid var(--rule);
+  padding: 12px 18px;
   outline: none;
 }
 
-/* Inspector panes */
+/* Inspector */
 
-.scopes, .stack { padding: 8px 12px; }
+.scopes, .stack { padding: 0 18px 14px; }
 
-.scope + .scope { margin-top: 10px; }
+.scope + .scope { margin-top: 12px; }
 
-.scope-label {
-  color: var(--dim);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
+.scope-label { color: var(--faint); }
+.scope-label::before { content: "└ "; }
 
-.binding { display: flex; gap: 8px; padding-left: 10px; }
-.binding .name { color: var(--accent); }
-.binding .value { color: var(--text); overflow-wrap: anywhere; }
+.binding, .frame { display: flex; gap: 10px; padding-left: 14px; }
+.name { color: var(--accent); }
+.value { color: var(--fg); overflow-wrap: anywhere; }
+.where { color: var(--dim); }
+.frame.top .name { color: var(--dim); }
 
-.frame { padding-left: 10px; }
-.frame .name { color: var(--accent); }
-.frame .where { color: var(--dim); }
-.frame.top { color: var(--text); }
-
-.empty { color: var(--dim); font-style: italic; padding-left: 10px; }
+.empty { color: var(--faint); padding-left: 14px; }
 
 .output {
   margin: 0;
-  padding: 8px 12px;
-  min-height: 6em;
+  padding: 0 18px 16px;
+  min-height: 5em;
   max-height: 18em;
   overflow: auto;
   white-space: pre-wrap;
   color: var(--ok);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
+  header { flex-wrap: wrap; }
+  .status { flex-basis: 100%; margin-left: 0; }
   main { grid-template-columns: minmax(0, 1fr); }
+  aside { border-left: none; border-top: 1px solid var(--rule); }
 }
