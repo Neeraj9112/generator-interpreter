@@ -19,6 +19,11 @@
     <button id="reset" class="quiet">r<span class="key">e</span>set</button>
     <button id="edit" class="quiet">edit</button>
   </nav>
+  <span class="rule"></span>
+  <nav class="backend" id="backend" aria-label="execution backend">
+    <button class="tab" data-backend="tree">tree</button>
+    <button class="tab" data-backend="vm">vm</button>
+  </nav>
   <span id="status" class="status">ready</span>
 </header>
 
@@ -52,6 +57,11 @@ print(a())
 print(a())
 print(b())
 </textarea>
+  </section>
+
+  <section class="code-pane" id="code-pane" hidden>
+    <h2>instructions <small id="code-title"></small></h2>
+    <div id="code" class="code-list"></div>
   </section>
 
   <aside>

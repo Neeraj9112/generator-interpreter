@@ -26,6 +26,11 @@ const ui = {
   showEmpty: /** @type {HTMLInputElement} */ (el('show-empty')),
   ribbon: /** @type {HTMLCanvasElement} */ (el('ribbon')),
   ribbonCount: el('ribbon-count'),
+  backend: el('backend'),
+  codePane: el('code-pane'),
+  codeTitle: el('code-title'),
+  code: el('code'),
+  main: /** @type {HTMLElement} */ (document.querySelector('main')),
 };
 
 /** Pixels per step in the ribbon: it stretches between these to fill the strip. */
@@ -46,12 +51,7 @@ let dbg = null;
 let editing = false;
 /** A program that would not load at all: bad syntax, or a misplaced `break`. @type {{label: string, message: string}|null} */
 let loadError = null;
-
-/**
- * Which backend executes. There is no control for it on the page yet, so it
- * stays where it starts; the abstraction underneath is what this is for.
- */
-const backendName = 'tree';
+let backendName = 'tree';
 
 /**
  * Rebuild the debugger around new source, carrying breakpoints and the
@@ -281,6 +281,55 @@ function frameRow(frame) {
   return row;
 }
 
+/**
+ * The instruction listing, on a backend that has one. The tree-walker has no
+ * instructions, so the pane and its column go away rather than sitting there
+ * empty — the layout says which backend is running before the switch does.
+ */
+function renderCode() {
+  const code = dbg === null ? null : dbg.code;
+  ui.codePane.hidden = code === null;
+  ui.main.classList.toggle('with-code', code !== null);
+  if (code === null) {
+    ui.code.replaceChildren();
+    ui.codeTitle.textContent = '';
+    return;
+  }
+
+  ui.codeTitle.textContent = code.title;
+  ui.code.replaceChildren();
+  /** @type {HTMLElement|null} */
+  let currentRow = null;
+  for (const line of code.lines) {
+    const row = document.createElement('div');
+    row.className = line.pc === code.pc ? 'ins current' : 'ins';
+    // The comment half is the operand spelled out; dimming it keeps the
+    // opcode column readable as a column.
+    const [instruction, note] = splitNote(line.text);
+    row.append(document.createTextNode(instruction));
+    if (note !== null) row.append(span('note', note));
+    ui.code.append(row);
+    if (line.pc === code.pc) currentRow = row;
+  }
+  if (currentRow !== null) currentRow.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * @param {string} text
+ * @returns {[string, string|null]}
+ */
+function splitNote(text) {
+  const at = text.indexOf('  ; ');
+  return at === -1 ? [text, null] : [text.slice(0, at), text.slice(at)];
+}
+
+function renderBackend() {
+  for (const button of ui.backend.querySelectorAll('button')) {
+    const selected = button.dataset.backend === backendName;
+    button.setAttribute('aria-pressed', String(selected));
+  }
+}
+
 function renderStatus() {
   if (loadError !== null) {
     ui.status.textContent = loadError.label;
@@ -306,6 +355,8 @@ function renderStatus() {
 function render() {
   renderSource();
   renderRibbon();
+  renderCode();
+  renderBackend();
   renderScopes();
   renderStack();
   renderStatus();
@@ -403,6 +454,24 @@ ui.edit.addEventListener('click', () => {
 });
 
 ui.showEmpty.addEventListener('change', render);
+
+// Switching backend restarts the program on the other one, with the same
+// source and the same breakpoints. Comparing the two on one program is the
+// reason both are still here.
+ui.backend.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const name = target.dataset.backend;
+  if (name === undefined || name === backendName) return;
+  backendName = name;
+  if (editing) {
+    renderBackend();
+    return;
+  }
+  if (dbg === null) load(ui.editor.value);
+  else dbg.setBackend(name);
+  render();
+});
 
 // The canvas is sized in CSS pixels, so a resize needs a redraw at the new
 // backing-store dimensions or the ribbon goes soft.
