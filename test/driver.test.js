@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Debugger, inspect } from '../web/driver.js';
 
+/** @typedef {import('../web/backends.js').Frame} Frame */
+
 /** @typedef {import('../web/driver.js').Scope} Scope */
 
 // Lines are 1-based and referred to by number all through this file, so the
@@ -54,7 +56,7 @@ function advanceTo(dbg, predicate) {
 function atEnterOf(type, line) {
   return (dbg) => dbg.current !== null
     && dbg.current.phase === 'enter'
-    && dbg.current.node.type === type
+    && dbg.current.label === type
     && dbg.line === line;
 }
 
@@ -87,11 +89,11 @@ test('the first step is the program enter, and steps come in enter/exit pairs', 
   const dbg = new Debugger('1 + 2');
   dbg.step();
   assert.equal(dbg.current?.phase, 'enter');
-  assert.equal(dbg.current?.node.type, 'Program');
+  assert.equal(dbg.current?.label, 'Program');
   assert.equal(dbg.status, 'paused');
 
   const seen = [];
-  while (dbg.step()) seen.push(`${dbg.current?.phase} ${dbg.current?.node.type}`);
+  while (dbg.step()) seen.push(`${dbg.current?.phase} ${dbg.current?.label}`);
   assert.deepEqual(seen.slice(0, 4), [
     'enter ExpressionStatement',
     'enter BinaryExpression',
@@ -241,8 +243,8 @@ test('a runtime error stops the run and keeps the failing node and stack', () =>
   dbg.run();
   assert.equal(dbg.status, 'error');
   assert.equal(dbg.failure?.message, "undefined variable 'missing'");
-  assert.equal(dbg.failure?.node.type, 'Identifier');
-  assert.deepEqual(dbg.failure?.stack.map((frame) => frame.name), ['boom']);
+  assert.equal(dbg.text(dbg.failure?.span ?? { start: 0, end: 0 }), 'missing');
+  assert.deepEqual(dbg.failure?.frames.map((frame) => frame.name), ['boom']);
 });
 
 test('the failure snapshot survives the unwind that follows it', () => {
@@ -250,7 +252,7 @@ test('the failure snapshot survives the unwind that follows it', () => {
   dbg.run();
   assert.equal(dbg.status, 'error');
   assert.match(dbg.failure?.message ?? '', /^'%' expects two numbers/);
-  assert.deepEqual(dbg.failure?.stack.map((frame) => frame.name), ['a', 'b']);
+  assert.deepEqual(dbg.failure?.frames.map((/** @type {Frame} */ frame) => frame.name), ['a', 'b']);
 });
 
 test('a call that fails on arity reports itself as the frame', () => {
@@ -258,7 +260,7 @@ test('a call that fails on arity reports itself as the frame', () => {
   dbg.run();
   assert.equal(dbg.status, 'error');
   assert.equal(dbg.failure?.message, 'one expects 1 argument, got 2');
-  assert.deepEqual(dbg.failure?.stack.map((frame) => frame.name), ['one']);
+  assert.deepEqual(dbg.failure?.frames.map((/** @type {Frame} */ frame) => frame.name), ['one']);
 });
 
 test('inspect quotes strings so they read apart from numbers', () => {
@@ -273,7 +275,15 @@ test('the trace records one mark per step, enters and exits balanced', () => {
   assert.equal(dbg.trace.length, dbg.stepCount);
   const enters = dbg.trace.filter((mark) => mark.phase === 'enter').length;
   assert.equal(enters, dbg.trace.length / 2, 'every enter should have its exit');
-  assert.equal(dbg.depth, 0, 'and the tree should be fully closed by the end');
+
+  // Balanced counts are not the same as balanced nesting, so walk it.
+  let open = 0;
+  for (const mark of dbg.trace) {
+    open += mark.phase === 'enter' ? 1 : -1;
+    assert.ok(open >= 0, 'an exit closed a level nothing had opened');
+  }
+  assert.equal(open, 0, 'the tree should be fully closed by the end');
+  assert.equal(dbg.depth, 0, 'and nothing should be reported as running');
 });
 
 test('a node enters and exits at the same depth, so a subtree reads as an arch', () => {

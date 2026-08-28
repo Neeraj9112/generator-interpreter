@@ -82,6 +82,12 @@ button:disabled .key { color: inherit; }
 .quiet { opacity: 0.7; }
 .quiet .key { color: var(--dim); }
 
+/* Backend switch: a segmented pair, because the two are alternatives rather
+   than actions and the pressed one has to stay legible while it is pressed. */
+.backend { display: flex; gap: 2px; }
+.tab { opacity: 0.7; }
+.tab[aria-pressed="true"] { color: var(--accent); border-color: var(--rule); background: var(--sel); opacity: 1; }
+
 .status { margin-left: auto; color: var(--dim); white-space: nowrap; }
 .status b { color: var(--fg); font-weight: 700; }
 
@@ -134,6 +140,11 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 22rem;
 }
+
+/* The instruction listing takes a column of its own rather than displacing
+   the source: watching a pc move against the lines it came from is the whole
+   point of keeping a source map. */
+main.with-code { grid-template-columns: minmax(0, 1fr) minmax(0, 25rem) 22rem; }
 
 aside { border-left: 1px solid var(--rule); min-width: 0; }
 aside section + section { border-top: 1px solid var(--rule); }
@@ -210,6 +221,28 @@ h2 small { color: var(--faint); }
   outline: none;
 }
 
+/* Instructions */
+
+.code-pane {
+  border-left: 1px solid var(--rule);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-list {
+  padding: 2px 0 18px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  max-height: 34em;
+}
+
+.ins { padding: 0 18px; white-space: pre; color: var(--dim); width: max-content; min-width: 100%; }
+.ins.current { background: var(--sel); color: var(--fg); }
+.ins .note { color: var(--faint); }
+.ins.current .note { color: var(--dim); }
+
 /* Inspector */
 
 .scopes, .stack { padding: 0 18px 14px; }
@@ -240,6 +273,6 @@ h2 small { color: var(--faint); }
 @media (max-width: 900px) {
   header { flex-wrap: wrap; }
   .status { flex-basis: 100%; margin-left: 0; }
-  main { grid-template-columns: minmax(0, 1fr); }
-  aside { border-left: none; border-top: 1px solid var(--rule); }
+  main, main.with-code { grid-template-columns: minmax(0, 1fr); }
+  aside, .code-pane { border-left: none; border-top: 1px solid var(--rule); }
 }

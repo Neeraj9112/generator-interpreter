@@ -2,7 +2,7 @@
 import { Debugger, inspect } from './driver.js';
 
 /** @typedef {import('../src/parser.js').Span} Span */
-/** @typedef {import('./driver.js').Frame} Frame */
+/** @typedef {import('./backends.js').Frame} Frame */
 
 /**
  * @param {string} id
@@ -26,6 +26,11 @@ const ui = {
   showEmpty: /** @type {HTMLInputElement} */ (el('show-empty')),
   ribbon: /** @type {HTMLCanvasElement} */ (el('ribbon')),
   ribbonCount: el('ribbon-count'),
+  backend: el('backend'),
+  codePane: el('code-pane'),
+  codeTitle: el('code-title'),
+  code: el('code'),
+  main: /** @type {HTMLElement} */ (document.querySelector('main')),
 };
 
 /** Pixels per step in the ribbon: it stretches between these to fill the strip. */
@@ -44,26 +49,30 @@ const buttons = {
 /** @type {Debugger|null} */
 let dbg = null;
 let editing = false;
-/** @type {string|null} */
-let parseError = null;
+/** A program that would not load at all: bad syntax, or a misplaced `break`. @type {{label: string, message: string}|null} */
+let loadError = null;
+let backendName = 'tree';
 
 /**
- * Rebuild the debugger around new source, carrying breakpoints across so
- * editing a line doesn't silently drop the marks you set.
+ * Rebuild the debugger around new source, carrying breakpoints and the
+ * chosen backend across so editing a line doesn't silently drop either.
  * @param {string} source
- * @returns {boolean} whether the source parsed
+ * @returns {boolean} whether the source loaded
  */
 function load(source) {
   const breakpoints = dbg === null ? [] : [...dbg.breakpoints];
   try {
-    dbg = new Debugger(source, { breakpoints });
-    parseError = null;
+    dbg = new Debugger(source, { breakpoints, backend: backendName });
+    loadError = null;
   } catch (err) {
     dbg = null;
-    parseError = err instanceof Error ? err.message : String(err);
+    // A SemanticError is not a parse error, and calling it one sends you
+    // hunting for a typo in a line that is spelled correctly.
+    const label = err instanceof Error && err.name === 'ParseError' ? 'parse error' : 'rejected';
+    loadError = { label, message: err instanceof Error ? err.message : String(err) };
   }
   render();
-  return parseError === null;
+  return loadError === null;
 }
 
 /**
@@ -105,7 +114,7 @@ function paintLine(code, text, lineStart, span) {
 function renderSource() {
   ui.source.replaceChildren();
   if (dbg === null) return;
-  const span = dbg.current === null ? null : dbg.current.node.span;
+  const span = dbg.current === null ? null : dbg.current.span;
   const currentLine = dbg.line;
 
   dbg.lines.forEach((text, index) => {
@@ -250,7 +259,7 @@ function renderStack() {
   // Once something has failed, the interesting stack is the one from the
   // moment it failed. The live stack has already unwound to nothing by then,
   // and showing that is the same as showing nothing at all.
-  const frames = dbg === null ? [] : dbg.failure?.stack ?? dbg.stack;
+  const frames = dbg === null ? [] : dbg.failure?.frames ?? dbg.stack;
   // Innermost first, the way a stack trace reads.
   for (const frame of [...frames].reverse()) {
     ui.stack.append(frameRow(frame));
@@ -272,23 +281,72 @@ function frameRow(frame) {
   return row;
 }
 
+/**
+ * The instruction listing, on a backend that has one. The tree-walker has no
+ * instructions, so the pane and its column go away rather than sitting there
+ * empty — the layout says which backend is running before the switch does.
+ */
+function renderCode() {
+  const code = dbg === null ? null : dbg.code;
+  ui.codePane.hidden = code === null;
+  ui.main.classList.toggle('with-code', code !== null);
+  if (code === null) {
+    ui.code.replaceChildren();
+    ui.codeTitle.textContent = '';
+    return;
+  }
+
+  ui.codeTitle.textContent = code.title;
+  ui.code.replaceChildren();
+  /** @type {HTMLElement|null} */
+  let currentRow = null;
+  for (const line of code.lines) {
+    const row = document.createElement('div');
+    row.className = line.pc === code.pc ? 'ins current' : 'ins';
+    // The comment half is the operand spelled out; dimming it keeps the
+    // opcode column readable as a column.
+    const [instruction, note] = splitNote(line.text);
+    row.append(document.createTextNode(instruction));
+    if (note !== null) row.append(span('note', note));
+    ui.code.append(row);
+    if (line.pc === code.pc) currentRow = row;
+  }
+  if (currentRow !== null) currentRow.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * @param {string} text
+ * @returns {[string, string|null]}
+ */
+function splitNote(text) {
+  const at = text.indexOf('  ; ');
+  return at === -1 ? [text, null] : [text.slice(0, at), text.slice(at)];
+}
+
+function renderBackend() {
+  for (const button of ui.backend.querySelectorAll('button')) {
+    const selected = button.dataset.backend === backendName;
+    button.setAttribute('aria-pressed', String(selected));
+  }
+}
+
 function renderStatus() {
-  if (parseError !== null) {
-    ui.status.textContent = 'parse error';
-    show(ui.failure, parseError);
+  if (loadError !== null) {
+    ui.status.textContent = loadError.label;
+    show(ui.failure, loadError.message);
     return;
   }
   if (dbg === null) return;
 
   if (dbg.failure !== null) {
-    show(ui.failure, `${dbg.failure.message} (${where(dbg, dbg.failure.node.span.start)})`);
+    show(ui.failure, `${dbg.failure.message} (${where(dbg, dbg.failure.span.start)})`);
   } else {
     hide(ui.failure);
   }
 
   const parts = [`<b>${dbg.status}</b>`, `step ${dbg.stepCount}`];
   if (dbg.current !== null) {
-    parts.push(`line ${dbg.line}`, `${dbg.current.phase} ${dbg.current.node.type}`);
+    parts.push(`line ${dbg.line}`, `${dbg.current.phase} ${dbg.current.label}`);
   }
   if (dbg.status === 'done') parts.push(`result ${inspect(dbg.result)}`);
   ui.status.innerHTML = parts.join(' &middot; ');
@@ -297,6 +355,8 @@ function renderStatus() {
 function render() {
   renderSource();
   renderRibbon();
+  renderCode();
+  renderBackend();
   renderScopes();
   renderStack();
   renderStatus();
@@ -394,6 +454,24 @@ ui.edit.addEventListener('click', () => {
 });
 
 ui.showEmpty.addEventListener('change', render);
+
+// Switching backend restarts the program on the other one, with the same
+// source and the same breakpoints. Comparing the two on one program is the
+// reason both are still here.
+ui.backend.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const name = target.dataset.backend;
+  if (name === undefined || name === backendName) return;
+  backendName = name;
+  if (editing) {
+    renderBackend();
+    return;
+  }
+  if (dbg === null) load(ui.editor.value);
+  else dbg.setBackend(name);
+  render();
+});
 
 // The canvas is sized in CSS pixels, so a resize needs a redraw at the new
 // backing-store dimensions or the ribbon goes soft.

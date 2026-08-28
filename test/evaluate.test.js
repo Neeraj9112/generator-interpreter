@@ -160,7 +160,7 @@ test('assignment writes through to the scope that owns the name', () => {
 });
 
 test('redeclaring in the same scope is an error, shadowing is not', () => {
-  assert.throws(() => run(parse('let x = 1 let x = 2')), { name: 'EvalError', message: /already declared/ });
+  assert.throws(() => run(parse('let x = 1 let x = 2')), { name: 'SemanticError', message: /already declared/ });
   assert.equal(run(parse('let x = 1 { let x = 2 } x')), 1);
 });
 
@@ -276,11 +276,22 @@ test('calls check the callee and its arity', () => {
   assert.throws(() => run(parse('fn f() {} f(1, 2)')), { name: 'EvalError', message: /expects 0 arguments, got 2/ });
 });
 
-test('a non-local exit with nothing to catch it becomes an error', () => {
-  assert.throws(() => run(parse('break')), { name: 'EvalError', message: /'break' outside of a loop/ });
-  assert.throws(() => run(parse('continue')), { name: 'EvalError', message: /'continue' outside of a loop/ });
-  assert.throws(() => run(parse('return 1')), { name: 'EvalError', message: /'return' outside of a function/ });
-  assert.throws(() => run(parse('while (true) { fn f() { break } f() }')), { name: 'EvalError', message: /'break' outside of a loop/ });
+test('run rejects a misplaced exit before executing anything', () => {
+  assert.throws(() => run(parse('break')), { name: 'SemanticError', message: /'break' outside of a loop/ });
+  assert.throws(() => run(parse('continue')), { name: 'SemanticError', message: /'continue' outside of a loop/ });
+  assert.throws(() => run(parse('return 1')), { name: 'SemanticError', message: /'return' outside of a function/ });
+  assert.throws(() => run(parse('while (true) { fn f() { break } f() }')), { name: 'SemanticError', message: /'break' outside of a loop/ });
+});
+
+test('the evaluator still turns an uncaught exit into an error on its own', () => {
+  // Driven directly rather than through `run`, which validates first. The
+  // evaluator has to stay correct without that: it is the generator the
+  // debugger drives, and a signal reaching the top is a real state it can
+  // arrive in whatever the validator did or did not see.
+  const { value } = drain(evaluate(parse('break'), new Env()));
+  assert.ok(isSignal(value));
+  assert.equal(value.kind, 'error');
+  assert.equal(value.message, "'break' outside of a loop");
 });
 
 test('an unwind is a value on the exit steps, not an invisible throw', () => {
