@@ -1,4 +1,5 @@
 // @ts-check
+import { validate } from './validate.js';
 
 /** @typedef {import('./parser.js').Span} Span */
 /** @typedef {import('./parser.js').Program} Program */
@@ -181,24 +182,20 @@ class ChunkCompiler {
   /**
    * @param {string} name
    * @param {string[]} params
-   * @param {boolean} isFunction whether `return` is legal in here
    */
-  constructor(name, params, isFunction) {
+  constructor(name, params) {
     /** @type {Chunk} */
     this.chunk = { name, params, code: [], spans: [], constants: [], protos: [] };
-    this.isFunction = isFunction;
 
     /**
-     * Names bound per scope, innermost last. Only for catching a name
-     * declared twice in one scope — *reads* stay dynamic, resolved against
-     * the live env chain at run time, exactly as the tree-walker does them.
-     * @type {Set<string>[]}
+     * How many scopes are open around the instruction being emitted, so a
+     * `break` knows how many it has to close on its way out. Which names are
+     * in them is `validate.js`'s business, not the emitter's.
      */
-    this.scopes = [new Set(params)];
+    this.scopeDepth = 0;
 
     /**
-     * Loops currently open around the instruction being emitted, so `break`
-     * and `continue` know where to jump and how many scopes they are leaving.
+     * Loops currently open, so `break` and `continue` know where to jump.
      * @type {{start: number, scopeDepth: number, breaks: number[]}[]}
      */
     this.loops = [];
@@ -280,24 +277,6 @@ class ChunkCompiler {
     this.emitArg(OP.JUMP, target - (this.chunk.code.length + 2), span);
   }
 
-  beginScope() {
-    this.scopes.push(new Set());
-  }
-
-  endScope() {
-    this.scopes.pop();
-  }
-
-  /**
-   * @param {string} name
-   * @param {Span} span
-   */
-  declare(name, span) {
-    const scope = this.scopes[this.scopes.length - 1];
-    if (scope.has(name)) throw new CompileError(`'${name}' is already declared in this scope`, span);
-    scope.add(name);
-  }
-
   /**
    * Statements run in order and the last one's value is the sequence's
    * value, so each one leaves exactly one value behind and the next pops it.
@@ -323,7 +302,6 @@ class ChunkCompiler {
         this.expression(node.expression);
         return;
       case 'LetStatement':
-        this.declare(node.name.name, node.name.span);
         this.expression(node.init);
         this.emitArg(OP.DEFINE, this.constant(node.name.name), node.span);
         return;
@@ -341,7 +319,6 @@ class ChunkCompiler {
         this.jumpOutOfLoop(node.type === 'BreakStatement' ? 'break' : 'continue', node.span);
         return;
       case 'ReturnStatement':
-        if (!this.isFunction) throw new CompileError("'return' outside of a function", node.span);
         if (node.argument === null) this.emitConst(undefined, node.span);
         else this.expression(node.argument);
         this.emit(OP.RET, node.span);
@@ -360,9 +337,9 @@ class ChunkCompiler {
   /** @param {Block} node */
   block(node) {
     this.emit(OP.PUSH_SCOPE, node.span);
-    this.beginScope();
+    this.scopeDepth++;
     this.statements(node.body, node.span);
-    this.endScope();
+    this.scopeDepth--;
     this.emit(OP.POP_SCOPE, node.span);
   }
 
@@ -396,7 +373,7 @@ class ChunkCompiler {
     this.expression(node.test);
     const toEnd = this.emitJump(OP.JUMP_IF_FALSE, node.test.span);
 
-    this.loops.push({ start, scopeDepth: this.scopes.length, breaks: [] });
+    this.loops.push({ start, scopeDepth: this.scopeDepth, breaks: [] });
     this.block(node.body);
     this.emit(OP.POP, node.body.span);
     this.emitLoop(start, node.span);
@@ -416,15 +393,17 @@ class ChunkCompiler {
    */
   jumpOutOfLoop(kind, span) {
     const loop = this.loops[this.loops.length - 1];
+    // Unreachable once `validate` has run, and it always has by the time a
+    // chunk is being emitted. Kept because there is no jump to emit without
+    // a loop to aim it at, and a silent bad offset is worse than a throw.
     if (loop === undefined) throw new CompileError(`'${kind}' outside of a loop`, span);
-    for (let depth = this.scopes.length; depth > loop.scopeDepth; depth--) this.emit(OP.POP_SCOPE, span);
+    for (let depth = this.scopeDepth; depth > loop.scopeDepth; depth--) this.emit(OP.POP_SCOPE, span);
     if (kind === 'continue') this.emitLoop(loop.start, span);
     else loop.breaks.push(this.emitJump(OP.JUMP, span));
   }
 
   /** @param {FnDeclaration} node */
   fnDeclaration(node) {
-    this.declare(node.name.name, node.name.span);
     const index = this.chunk.protos.push(compileFunction(node)) - 1;
     this.emitArg(OP.CLOSURE, index, node.span);
   }
@@ -499,7 +478,7 @@ class ChunkCompiler {
  * @returns {Chunk}
  */
 function compileFunction(node) {
-  const fn = new ChunkCompiler(node.name.name, node.params.map((p) => p.name), true);
+  const fn = new ChunkCompiler(node.name.name, node.params.map((p) => p.name));
   fn.block(node.body);
   fn.emit(OP.POP, node.body.span);
   fn.emitConst(undefined, node.body.span);
@@ -512,7 +491,10 @@ function compileFunction(node) {
  * @returns {Chunk}
  */
 export function compile(program) {
-  const main = new ChunkCompiler('<program>', [], false);
+  // Both backends run this first, so the two of them reject exactly the same
+  // programs — see `validate.js` for why that has to happen before either.
+  validate(program);
+  const main = new ChunkCompiler('<program>', []);
   main.statements(program.body, program.span);
   main.emit(OP.HALT, program.span);
   return main.chunk;

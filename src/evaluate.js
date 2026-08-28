@@ -1,6 +1,7 @@
 // @ts-check
 import { Env } from './env.js';
 import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, isTruthy } from './values.js';
+import { validate } from './validate.js';
 
 /** @typedef {import('./parser.js').Program} Program */
 /** @typedef {import('./parser.js').Statement} Statement */
@@ -405,6 +406,9 @@ function* evalBinary(node, env) {
  * @returns {Value}
  */
 export function run(node, env = new Env()) {
+  // Before anything executes, and identically to the VM: a misplaced `break`
+  // is a mistake whether or not control happens to reach it.
+  validate(node);
   const iter = evaluate(node, env);
   /** @type {IteratorResult<Step, Completion>} */
   let step = iter.next();

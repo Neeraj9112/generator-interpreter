@@ -86,6 +86,14 @@ export const PROGRAMS = [
   { name: 'continue outside a loop is an error', source: 'continue', error: "'continue' outside of a loop" },
   { name: 'return outside a function is an error', source: 'return 1', error: "'return' outside of a function" },
 
+  // Rejected before the program runs, so being unreachable is no defence.
+  // These are the cases the two backends used to disagree about.
+  { name: 'a misplaced break is an error even where nothing reaches it', source: 'if (false) { break }', error: "'break' outside of a loop" },
+  { name: 'a redeclaration is an error even where nothing reaches it', source: 'if (false) { let x = 1 let x = 2 }', error: "'x' is already declared in this scope" },
+  { name: 'a loop around a declaration does not enclose its body', source: 'while (true) { fn f() { break } }', error: "'break' outside of a loop" },
+  { name: 'a loop inside a function body does enclose it', source: 'fn f() { while (true) { break } return 1 } f()', result: 'number 1' },
+  { name: 'a function declared in a loop may still return', source: 'let n = 0 while (n == 0) { fn f() { return 1 } n = f() } n', result: 'number 1' },
+
   // ---- functions and closures --------------------------------------------
   { name: 'a declaration evaluates to the function', source: 'fn f() { return 1 }', result: 'function f' },
   { name: 'a call runs the body', source: 'fn double(n) { return n * 2 } double(21)', result: 'number 42' },

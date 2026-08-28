@@ -99,13 +99,33 @@ sentinel that an evaluator returns in place of a value, and that every caller
 passes outward until something catches it. Loops catch `break` and `continue`,
 calls catch `return`, and `run()` catches an error and rethrows it as an
 `EvalError`. A sentinel that reaches somewhere nothing catches it turns into
-an error, because a `break` with no loop around it is a mistake.
+an error too, though a program that could do that is rejected before it runs.
 
 The reason it is a value rather than a JS `throw`: a throw travelling up the
 `yield*` chain would skip every pause point on the way out, so a debugger
 would watch the interpreter vanish mid-expression. As a value it lands on the
 exit step of every node it passes through, which makes an unwind something you
 can step through like anything else.
+
+## Checked before it runs
+
+A few mistakes don't depend on what any value turns out to be, so they are
+settled before the first instruction:
+
+- `break` and `continue` need a loop around them.
+- `return` needs a function around it.
+- A name can be declared once per scope. Shadowing it in a nested scope is fine.
+
+The first two rules start over inside a function body.
+`while (true) { fn f() { break } }` is rejected, because a function is a value
+that can outlive the loop it was declared in, and nothing says which iteration
+that `break` would be leaving.
+
+Unreachable code is checked too, so `if (false) { break }` is rejected. That is
+the stricter reading, and it is the one that lets the tree-walker and the
+bytecode VM agree. `break` compiles to a jump, so the compiler has to know which
+loop it leaves before the program starts; it cannot wait to see whether control
+arrives. Both backends run the same pass first and both raise `SemanticError`.
 
 ## The debugger
 

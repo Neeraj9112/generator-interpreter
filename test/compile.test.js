@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.js';
-import { compile, disassemble, disassembleAll, CompileError, META, OP } from '../src/compile.js';
+import { compile, disassemble, disassembleAll, META, OP } from '../src/compile.js';
+import { SemanticError } from '../src/validate.js';
 
 /** @typedef {import('../src/compile.js').Chunk} Chunk */
 
@@ -96,30 +97,12 @@ test('leaving a loop early pops the scopes opened inside it', () => {
   assert.equal(pops.length, 3 + 3);
 });
 
-test('break outside a loop is caught at compile time, with a span', () => {
-  assert.throws(
-    () => chunkFor('let x = 1 break'),
-    (/** @type {CompileError} */ error) => {
-      assert.ok(error instanceof CompileError);
-      assert.equal(error.message, "'break' outside of a loop");
-      assert.deepEqual(error.span, { start: 10, end: 15 });
-      return true;
-    },
-  );
-});
-
-test('return outside a function is caught at compile time', () => {
-  assert.throws(() => chunkFor('return 1'), { name: 'CompileError', message: "'return' outside of a function" });
-});
-
-test('a name declared twice in one scope is caught at compile time', () => {
-  assert.throws(() => chunkFor('let x = 1 let x = 2'), { message: "'x' is already declared in this scope" });
-  assert.throws(() => chunkFor('fn f() { } fn f() { }'), { message: "'f' is already declared in this scope" });
-});
-
-test('the same name in nested scopes is fine', () => {
-  assert.doesNotThrow(() => chunkFor('let x = 1 { let x = 2 { let x = 3 } }'));
-  assert.doesNotThrow(() => chunkFor('fn f(x) { let x = 2 }'));
+test('compiling validates first, so nothing malformed reaches the emitter', () => {
+  // The rules themselves are validate.js's, and tested there. What matters
+  // here is that a chunk can never be built without them having run.
+  assert.throws(() => chunkFor('let x = 1 break'), SemanticError);
+  assert.throws(() => chunkFor('return 1'), SemanticError);
+  assert.throws(() => chunkFor('let x = 1 let x = 2'), SemanticError);
 });
 
 test('a function compiles to its own chunk, listed under the one that declared it', () => {

@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse } from '../src/parser.js';
 import { run as runTree, EvalError } from '../src/evaluate.js';
-import { compile, CompileError } from '../src/compile.js';
+import { compile } from '../src/compile.js';
+import { SemanticError } from '../src/validate.js';
 import { run as runVm, VmError } from '../src/vm.js';
 import { globals } from '../src/builtins.js';
 import { describe } from '../src/values.js';
@@ -25,7 +26,7 @@ function onTreeWalker(source) {
   try {
     return { result: describe(runTree(parse(source), env)), output };
   } catch (error) {
-    if (error instanceof EvalError) return { error: error.message, output };
+    if (error instanceof EvalError || error instanceof SemanticError) return { error: error.message, output };
     throw error;
   }
 }
@@ -41,9 +42,7 @@ function onVm(source) {
   try {
     return { result: describe(runVm(compile(parse(source)), env)), output };
   } catch (error) {
-    // A CompileError is the VM's equivalent of a run-time unwind the
-    // tree-walker would have reached: same message, found earlier.
-    if (error instanceof VmError || error instanceof CompileError) return { error: error.message, output };
+    if (error instanceof VmError || error instanceof SemanticError) return { error: error.message, output };
     throw error;
   }
 }
