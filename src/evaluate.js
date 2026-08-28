@@ -23,10 +23,9 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
 
 /**
  * Truthiness, `describe` and the arithmetic and comparison rules live in
- * `values.js`: they are what the language's operators *mean*, and mean the
- * same however a program is executed. What stays here is how this evaluator
- * *reaches* an operation, which is the part a second backend would do
- * differently.
+ * `values.js` because the VM needs exactly the same answers. Anything shared
+ * between the backends belongs there; what stays here is how the tree-walker
+ * *reaches* an operation, not what the operation means.
  */
 export { isTruthy } from './values.js';
 
@@ -338,6 +337,11 @@ function* evalCall(node, env) {
   // A builtin runs as a single step. There is no Pip body underneath it, so
   // the CallExpression's own enter/exit pair is the whole of the call.
   if (callee.type === 'native') return callee.call(args);
+
+  // A compiled closure has a chunk where this evaluator wants an AST body.
+  // Nothing hands one over in practice — the two backends never share a heap
+  // — but saying so beats a `TypeError` from deep inside if that ever changes.
+  if (callee.type === 'closure') return fail(node, `${callee.name} is compiled and can only be called by the VM`);
 
   const frame = callee.env.child();
   for (let i = 0; i < arity; i++) frame.define(callee.params[i].name, args[i]);

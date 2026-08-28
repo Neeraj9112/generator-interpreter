@@ -3,11 +3,20 @@
 /** @typedef {import('./parser.js').Identifier} Identifier */
 /** @typedef {import('./parser.js').Block} Block */
 /** @typedef {import('./env.js').Env} Env */
+/** @typedef {import('./compile.js').Chunk} Chunk */
 
 /**
- * A function value: its parameters, its body, and — the part that matters —
- * the env it was *defined* in. Holding that reference is what a closure is.
+ * A function the tree-walker calls: parameters, an AST body, and — the part
+ * that matters — the env it was *defined* in. Holding that reference is what
+ * a closure is.
  * @typedef {{type: 'function', name: string, params: Identifier[], body: Block, env: Env}} FnValue
+ */
+
+/**
+ * The same idea for the VM: a compiled chunk instead of an AST body. The env
+ * field is identical, which is why closures behave the same on both backends
+ * without either one knowing the other exists.
+ * @typedef {{type: 'closure', name: string, proto: Chunk, env: Env}} Closure
  */
 
 /**
@@ -18,7 +27,7 @@
  * @typedef {{type: 'native', name: string, arity: number, call: (args: Value[]) => Value}} NativeFn
  */
 
-/** @typedef {FnValue|NativeFn} Callable */
+/** @typedef {FnValue|Closure|NativeFn} Callable */
 
 /**
  * Numbers, strings, booleans and functions. `undefined` is what a function
@@ -30,8 +39,8 @@
 /**
  * What an operation produces: a value, or the message explaining why there
  * isn't one. Deliberately neither a throw nor a `Signal` — this module sits
- * below the evaluator and knows nothing about how it unwinds, so the caller
- * wraps a failure in whatever its own mechanism is.
+ * below both backends and knows about neither, so each one wraps a failure
+ * in whatever its own unwinding mechanism is.
  * @typedef {{ok: true, value: Value}|{ok: false, message: string}} OpResult
  */
 
@@ -73,12 +82,14 @@ export function isCallable(value) {
 }
 
 /**
- * How many arguments a callable takes, whichever shape it is.
+ * How many arguments a callable takes, whichever of the three shapes it is.
  * @param {Callable} callable
  * @returns {number}
  */
 export function arityOf(callable) {
-  return callable.type === 'native' ? callable.arity : callable.params.length;
+  if (callable.type === 'native') return callable.arity;
+  if (callable.type === 'closure') return callable.proto.params.length;
+  return callable.params.length;
 }
 
 /**
@@ -130,8 +141,8 @@ export function applyUnary(operator, operand) {
 
 /**
  * Every binary operator except `&&` and `||`, which short-circuit and so
- * never hold both operands at once — those two are control flow, and control
- * flow is the evaluator's business, not an operator table's.
+ * never hold both operands at once — those two are control flow, and each
+ * backend expresses control flow in its own terms.
  * @param {string} operator
  * @param {Value} left
  * @param {Value} right
