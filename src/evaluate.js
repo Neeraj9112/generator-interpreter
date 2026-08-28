@@ -1,5 +1,6 @@
 // @ts-check
 import { Env } from './env.js';
+import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, isTruthy } from './values.js';
 
 /** @typedef {import('./parser.js').Program} Program */
 /** @typedef {import('./parser.js').Statement} Statement */
@@ -15,22 +16,19 @@ import { Env } from './env.js';
 /** @typedef {import('./parser.js').ReturnStatement} ReturnStatement */
 /** @typedef {import('./parser.js').FnDeclaration} FnDeclaration */
 /** @typedef {import('./parser.js').CallExpression} CallExpression */
-/** @typedef {import('./builtins.js').NativeFn} NativeFn */
 /** @typedef {Program|Statement|Expression} Node */
 
-/**
- * A function value is its parameters, its body, and — the part that matters —
- * the env it was *defined* in. Holding that reference is what a closure is.
- * @typedef {{type: 'function', name: string, params: Identifier[], body: Block, env: Env}} FnValue
- */
+/** @typedef {import('./values.js').FnValue} FnValue */
+/** @typedef {import('./values.js').Value} Value */
 
 /**
- * Numbers, strings, booleans and functions, where a function is either one
- * written in Pip or a builtin. `undefined` is what a function that never
- * returns produces, and what an empty program evaluates to; the language has
- * no literal for it.
- * @typedef {number|string|boolean|undefined|FnValue|NativeFn} Value
+ * Truthiness, `describe` and the arithmetic and comparison rules live in
+ * `values.js`: they are what the language's operators *mean*, and mean the
+ * same however a program is executed. What stays here is how this evaluator
+ * *reaches* an operation, which is the part a second backend would do
+ * differently.
  */
+export { isTruthy } from './values.js';
 
 /** @typedef {'return'|'break'|'continue'|'error'} SignalKind */
 
@@ -116,17 +114,6 @@ export class EvalError extends Error {
     this.name = 'EvalError';
     this.node = node;
   }
-}
-
-/**
- * Falsy is exactly `false`, `0`, `""` and nothing — every other value,
- * including every nonzero number, every non-empty string and every function,
- * is truthy.
- * @param {Value} value
- * @returns {boolean}
- */
-export function isTruthy(value) {
-  return value !== false && value !== 0 && value !== '' && value !== undefined;
 }
 
 /**
@@ -345,10 +332,8 @@ function* evalCall(node, env) {
   }
 
   if (!isCallable(callee)) return fail(node, `${describe(callee)} is not a function`);
-  const arity = callee.type === 'native' ? callee.arity : callee.params.length;
-  if (args.length !== arity) {
-    return fail(node, `${callee.name} expects ${arity} ${arity === 1 ? 'argument' : 'arguments'}, got ${args.length}`);
-  }
+  const arity = arityOf(callee);
+  if (args.length !== arity) return fail(node, arityMessage(callee, args.length));
 
   // A builtin runs as a single step. There is no Pip body underneath it, so
   // the CallExpression's own enter/exit pair is the whole of the call.
@@ -371,11 +356,8 @@ function* evalCall(node, env) {
 function* evalUnary(node, env) {
   const argument = yield* evaluate(node.argument, env);
   if (isSignal(argument)) return argument;
-  if (node.operator === '!') return !isTruthy(argument);
-  if (typeof argument !== 'number') {
-    return fail(node, `unary '-' expects a number, got ${describe(argument)}`);
-  }
-  return -argument;
+  const result = applyUnary(node.operator, argument);
+  return result.ok ? result.value : fail(node, result.message);
 }
 
 /**
@@ -405,155 +387,8 @@ function* evalBinary(node, env) {
   if (isSignal(left)) return left;
   const right = yield* evaluate(node.right, env);
   if (isSignal(right)) return right;
-  return applyBinary(operator, left, right, node);
-}
-
-/**
- * @param {string} operator
- * @param {Value} left
- * @param {Value} right
- * @param {BinaryExpression} node
- * @returns {Completion}
- */
-function applyBinary(operator, left, right, node) {
-  switch (operator) {
-    case '+':
-      return add(left, right, node);
-    case '-':
-    case '*':
-    case '/':
-    case '%':
-      return arithmetic(operator, left, right, node);
-    case '==':
-      return left === right;
-    case '!=':
-      return left !== right;
-    case '<':
-    case '<=':
-    case '>':
-    case '>=':
-      return compare(operator, left, right, node);
-    default:
-      return fail(node, `evaluate: unknown operator '${operator}'`);
-  }
-}
-
-/**
- * The one overloaded operator: concatenation if either side is a string,
- * addition otherwise. Only numbers, strings and booleans splice into a
- * string — a function or nothing on either side is an error rather than an
- * "[object Object]" nobody asked for.
- * @param {Value} left
- * @param {Value} right
- * @param {BinaryExpression} node
- * @returns {Completion}
- */
-function add(left, right, node) {
-  if (typeof left === 'string' || typeof right === 'string') {
-    if (isPrintable(left) && isPrintable(right)) return `${left}${right}`;
-    return fail(node, `'+' cannot concatenate ${describe(left)} and ${describe(right)}`);
-  }
-  if (typeof left !== 'number' || typeof right !== 'number') {
-    return fail(node, `'+' expects two numbers or a string, got ${describe(left)} and ${describe(right)}`);
-  }
-  return left + right;
-}
-
-/**
- * @param {string} operator
- * @param {Value} left
- * @param {Value} right
- * @param {BinaryExpression} node
- * @returns {Completion}
- */
-function arithmetic(operator, left, right, node) {
-  if (typeof left !== 'number' || typeof right !== 'number') {
-    return fail(node, `'${operator}' expects two numbers, got ${describe(left)} and ${describe(right)}`);
-  }
-  switch (operator) {
-    case '-': return left - right;
-    case '*': return left * right;
-    case '/': return left / right;
-    case '%': return left % right;
-    default: return fail(node, `evaluate: unknown operator '${operator}'`);
-  }
-}
-
-/**
- * Numbers order by value, strings by UTF-16 code unit. No coercion: mixing
- * the two, or ordering a boolean, is a type error rather than a guess.
- * @param {string} operator
- * @param {Value} left
- * @param {Value} right
- * @param {BinaryExpression} node
- * @returns {Completion}
- */
-function compare(operator, left, right, node) {
-  if (typeof left === 'number' && typeof right === 'number') return orderNumbers(operator, left, right);
-  if (typeof left === 'string' && typeof right === 'string') return orderStrings(operator, left, right);
-  return fail(node, `'${operator}' expects two numbers or two strings, got ${describe(left)} and ${describe(right)}`);
-}
-
-/**
- * @param {string} operator
- * @param {number} left
- * @param {number} right
- * @returns {boolean}
- */
-function orderNumbers(operator, left, right) {
-  switch (operator) {
-    case '<': return left < right;
-    case '<=': return left <= right;
-    case '>': return left > right;
-    case '>=': return left >= right;
-    default: throw new Error(`unreachable operator '${operator}'`);
-  }
-}
-
-/**
- * @param {string} operator
- * @param {string} left
- * @param {string} right
- * @returns {boolean}
- */
-function orderStrings(operator, left, right) {
-  switch (operator) {
-    case '<': return left < right;
-    case '<=': return left <= right;
-    case '>': return left > right;
-    case '>=': return left >= right;
-    default: throw new Error(`unreachable operator '${operator}'`);
-  }
-}
-
-/**
- * Both kinds of function are objects, and nothing else in the language is, so
- * one check serves calling and `describe` alike.
- * @param {Value} value
- * @returns {value is FnValue|NativeFn}
- */
-function isCallable(value) {
-  return typeof value === 'object' && value !== null;
-}
-
-/**
- * Values `+` will splice into a string.
- * @param {Value} value
- * @returns {value is number|string|boolean}
- */
-function isPrintable(value) {
-  return typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean';
-}
-
-/**
- * @param {Value} value
- * @returns {string}
- */
-function describe(value) {
-  if (value === undefined) return 'nothing';
-  if (typeof value === 'string') return `string ${JSON.stringify(value)}`;
-  if (isCallable(value)) return `function ${value.name}`;
-  return `${typeof value} ${value}`;
+  const result = applyBinary(operator, left, right);
+  return result.ok ? result.value : fail(node, result.message);
 }
 
 /**

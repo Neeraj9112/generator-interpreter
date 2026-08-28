@@ -1,6 +1,6 @@
 // @ts-check
 
-/** @typedef {import('./evaluate.js').Value} Value */
+/** @typedef {import('./values.js').Value} Value */
 
 /**
  * A scope: its own bindings, plus a link to the scope enclosing it. A linked
