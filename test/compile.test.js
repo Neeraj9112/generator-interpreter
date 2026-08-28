@@ -112,6 +112,13 @@ test('a function compiles to its own chunk, listed under the one that declared i
   assert.deepEqual(chunk.protos[0].code.slice(-1), [OP.RET], 'a body always ends by returning');
 });
 
+test('a listing names constants the way the language does', () => {
+  const lines = disassemble(chunkFor('fn f() { } f()')).concat(disassemble(chunkFor('fn f() { }').protos[0]));
+  const nothing = lines.find((line) => line.note === 'nothing');
+  assert.ok(nothing !== undefined, 'a function that returns nothing should say so, not "undefined"');
+  assert.equal(disassemble(chunkFor('"hi"'))[0].note, '"hi"', 'a string constant should read apart from a name');
+});
+
 test('a disassembly says what the operands refer to', () => {
   assert.equal(
     disassembleAll(chunkFor('let n = 2 print(n)')),

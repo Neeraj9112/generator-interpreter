@@ -2,7 +2,7 @@
 import { Debugger, inspect } from './driver.js';
 
 /** @typedef {import('../src/parser.js').Span} Span */
-/** @typedef {import('./driver.js').Frame} Frame */
+/** @typedef {import('./backends.js').Frame} Frame */
 
 /**
  * @param {string} id
@@ -44,26 +44,35 @@ const buttons = {
 /** @type {Debugger|null} */
 let dbg = null;
 let editing = false;
-/** @type {string|null} */
-let parseError = null;
+/** A program that would not load at all: bad syntax, or a misplaced `break`. @type {{label: string, message: string}|null} */
+let loadError = null;
 
 /**
- * Rebuild the debugger around new source, carrying breakpoints across so
- * editing a line doesn't silently drop the marks you set.
+ * Which backend executes. There is no control for it on the page yet, so it
+ * stays where it starts; the abstraction underneath is what this is for.
+ */
+const backendName = 'tree';
+
+/**
+ * Rebuild the debugger around new source, carrying breakpoints and the
+ * chosen backend across so editing a line doesn't silently drop either.
  * @param {string} source
- * @returns {boolean} whether the source parsed
+ * @returns {boolean} whether the source loaded
  */
 function load(source) {
   const breakpoints = dbg === null ? [] : [...dbg.breakpoints];
   try {
-    dbg = new Debugger(source, { breakpoints });
-    parseError = null;
+    dbg = new Debugger(source, { breakpoints, backend: backendName });
+    loadError = null;
   } catch (err) {
     dbg = null;
-    parseError = err instanceof Error ? err.message : String(err);
+    // A SemanticError is not a parse error, and calling it one sends you
+    // hunting for a typo in a line that is spelled correctly.
+    const label = err instanceof Error && err.name === 'ParseError' ? 'parse error' : 'rejected';
+    loadError = { label, message: err instanceof Error ? err.message : String(err) };
   }
   render();
-  return parseError === null;
+  return loadError === null;
 }
 
 /**
@@ -105,7 +114,7 @@ function paintLine(code, text, lineStart, span) {
 function renderSource() {
   ui.source.replaceChildren();
   if (dbg === null) return;
-  const span = dbg.current === null ? null : dbg.current.node.span;
+  const span = dbg.current === null ? null : dbg.current.span;
   const currentLine = dbg.line;
 
   dbg.lines.forEach((text, index) => {
@@ -250,7 +259,7 @@ function renderStack() {
   // Once something has failed, the interesting stack is the one from the
   // moment it failed. The live stack has already unwound to nothing by then,
   // and showing that is the same as showing nothing at all.
-  const frames = dbg === null ? [] : dbg.failure?.stack ?? dbg.stack;
+  const frames = dbg === null ? [] : dbg.failure?.frames ?? dbg.stack;
   // Innermost first, the way a stack trace reads.
   for (const frame of [...frames].reverse()) {
     ui.stack.append(frameRow(frame));
@@ -273,22 +282,22 @@ function frameRow(frame) {
 }
 
 function renderStatus() {
-  if (parseError !== null) {
-    ui.status.textContent = 'parse error';
-    show(ui.failure, parseError);
+  if (loadError !== null) {
+    ui.status.textContent = loadError.label;
+    show(ui.failure, loadError.message);
     return;
   }
   if (dbg === null) return;
 
   if (dbg.failure !== null) {
-    show(ui.failure, `${dbg.failure.message} (${where(dbg, dbg.failure.node.span.start)})`);
+    show(ui.failure, `${dbg.failure.message} (${where(dbg, dbg.failure.span.start)})`);
   } else {
     hide(ui.failure);
   }
 
   const parts = [`<b>${dbg.status}</b>`, `step ${dbg.stepCount}`];
   if (dbg.current !== null) {
-    parts.push(`line ${dbg.line}`, `${dbg.current.phase} ${dbg.current.node.type}`);
+    parts.push(`line ${dbg.line}`, `${dbg.current.phase} ${dbg.current.label}`);
   }
   if (dbg.status === 'done') parts.push(`result ${inspect(dbg.result)}`);
   ui.status.innerHTML = parts.join(' &middot; ');

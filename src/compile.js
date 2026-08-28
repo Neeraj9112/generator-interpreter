@@ -542,6 +542,9 @@ function note(chunk, op, operand, pc) {
   switch (op) {
     case OP.CONST: {
       const value = chunk.constants[operand];
+      // Quoted so a string constant reads apart from a name, and named the
+      // way the language names it: there is no `undefined` in Pip.
+      if (value === undefined) return 'nothing';
       return typeof value === 'string' ? JSON.stringify(value) : String(value);
     }
     case OP.GET:

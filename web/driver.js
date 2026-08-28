@@ -1,20 +1,20 @@
 // @ts-check
 import { parse } from '../src/parser.js';
-import { evaluate, isSignal } from '../src/evaluate.js';
+import { validate } from '../src/validate.js';
 import { globals, format } from '../src/builtins.js';
+import { BACKENDS } from './backends.js';
 
 /** @typedef {import('../src/parser.js').Program} Program */
-/** @typedef {import('../src/parser.js').CallExpression} CallExpression */
 /** @typedef {import('../src/parser.js').Span} Span */
-/** @typedef {import('../src/evaluate.js').Node} Node */
-/** @typedef {import('../src/evaluate.js').Step} Step */
-/** @typedef {import('../src/evaluate.js').Value} Value */
-/** @typedef {import('../src/evaluate.js').Completion} Completion */
+/** @typedef {import('../src/values.js').Value} Value */
 /** @typedef {import('../src/env.js').Env} Env */
+/** @typedef {import('./backends.js').Pause} Pause */
+/** @typedef {import('./backends.js').Frame} Frame */
+/** @typedef {import('./backends.js').Failure} Failure */
+/** @typedef {import('./backends.js').TreeBackend} TreeBackend */
+/** @typedef {import('./backends.js').VmBackend} VmBackend */
 
-/** @typedef {{name: string, node: CallExpression, line: number}} Frame */
 /** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean}} Mark */
-/** @typedef {{message: string, node: Node, stack: Frame[]}} Failure */
 /** @typedef {{label: string, bindings: {name: string, value: Value}[]}} Scope */
 /** @typedef {'ready'|'paused'|'done'|'error'} Status */
 
@@ -37,8 +37,8 @@ const TRACE_LIMIT = 4000;
 /**
  * Index of every line start, so a source index becomes a line number by
  * binary search instead of by counting newlines from the top. Stepping asks
- * for this on every `.next()`, and the linear version quietly makes each
- * step cost O(source).
+ * for this on every step, and the linear version quietly makes each step
+ * cost O(source).
  * @param {string} source
  * @returns {number[]}
  */
@@ -51,30 +51,39 @@ function lineStartsOf(source) {
 }
 
 /**
- * Owns the iterator and nothing else — no DOM, so the stepping rules are
+ * Owns the execution and nothing else — no DOM, so the stepping rules are
  * testable under `node --test` rather than only by clicking. The UI reads
  * this and draws it; every decision about *where execution is* lives here.
+ *
+ * Which of the two backends is doing the executing is not one of those
+ * decisions. This class asks for pause points and gets back the same shape
+ * either way, so stepping, breakpoints, the ribbon and the stack pane are
+ * written once. That is most of what Phase 5 changed up here: the debugger
+ * turned out to need almost nothing from the tree-walker specifically.
  */
 export class Debugger {
   /**
    * @param {string} source
-   * @param {{breakpoints?: Iterable<number>}} [options]
+   * @param {{breakpoints?: Iterable<number>, backend?: string}} [options]
    */
   constructor(source, options = {}) {
     this.source = source;
-    /** Throws ParseError on bad source; the caller decides how to show that. */
+    /** Throws on source that doesn't parse or doesn't mean anything; the caller decides how to show that. */
     this.program = parse(source);
+    // Both backends do this before running, so doing it here keeps a
+    // misplaced `break` from looking like a property of the one selected.
+    validate(this.program);
+
     this.lineStarts = lineStartsOf(source);
     this.lines = source.split('\n');
 
     /** Lines that halt a `run()`. Survives `reset`, like a real debugger. @type {Set<number>} */
     this.breakpoints = new Set(options.breakpoints ?? []);
+    this.backendName = options.backend !== undefined && options.backend in BACKENDS ? options.backend : 'tree';
 
     /** @type {string[]} */
     this.output = [];
-    /** @type {Frame[]} */
-    this.stack = [];
-    /** @type {Step|null} */
+    /** @type {Pause|null} */
     this.current = null;
     /** @type {Status} */
     this.status = 'ready';
@@ -85,13 +94,7 @@ export class Debugger {
     this.stepCount = 0;
     /** @type {number|null} */
     this.previousLine = null;
-
-    /**
-     * One entry per yield, which is what the ribbon draws. Depth is the
-     * nesting of the node in the tree, and a node's enter and exit record the
-     * same one, so a subtree reads as a symmetric arch rather than a staircase.
-     * @type {Mark[]}
-     */
+    /** @type {Mark[]} */
     this.trace = [];
     this.depth = 0;
     /** Steps dropped off the front of the trace once it hit its cap. */
@@ -99,9 +102,10 @@ export class Debugger {
 
     /** @type {Env} */
     this.globalEnv = this.freshGlobals();
-    /** Top-level bindings get a scope of their own, so the inspector can tell them from the builtins. @type {Env} */
+    /** @type {Env} */
     this.programEnv = this.globalEnv.child();
-    this.iterator = evaluate(this.program, this.programEnv);
+    /** @type {TreeBackend|VmBackend} */
+    this.backend = this.freshBackend();
   }
 
   /**
@@ -112,10 +116,40 @@ export class Debugger {
     return globals({ write: (line) => this.output.push(line) });
   }
 
+  /**
+   * A backend over freshly built scopes. Top-level bindings get a scope of
+   * their own below the builtins, so the inspector can tell the two apart.
+   * @returns {TreeBackend|VmBackend}
+   */
+  freshBackend() {
+    return BACKENDS[this.backendName].create(this.program, this.programEnv, {
+      lineOf: (index) => this.lineOf(index),
+      text: (span) => this.text(span),
+    });
+  }
+
+  /** The name of the backend currently executing. @returns {string} */
+  get backendLabel() {
+    return BACKENDS[this.backendName].label;
+  }
+
+  /**
+   * Switching backend restarts the program, because there is no way to carry
+   * a position across: one of them is at a node and the other is at an
+   * instruction, and neither knows what the other's position would mean.
+   * Breakpoints and the source survive, which is what you actually want when
+   * comparing the two on the same program.
+   * @param {string} name
+   */
+  setBackend(name) {
+    if (!(name in BACKENDS) || name === this.backendName) return;
+    this.backendName = name;
+    this.reset();
+  }
+
   /** Back to the first step, keeping breakpoints. */
   reset() {
     this.output = [];
-    this.stack = [];
     this.current = null;
     this.status = 'ready';
     this.result = undefined;
@@ -127,7 +161,17 @@ export class Debugger {
     this.dropped = 0;
     this.globalEnv = this.freshGlobals();
     this.programEnv = this.globalEnv.child();
-    this.iterator = evaluate(this.program, this.programEnv);
+    this.backend = this.freshBackend();
+  }
+
+  /** The call stack as the backend reports it. @returns {Frame[]} */
+  get stack() {
+    return this.backend.frames;
+  }
+
+  /** The instruction listing, on a backend that has one. */
+  get code() {
+    return this.backend.code();
   }
 
   /** @returns {boolean} */
@@ -137,7 +181,7 @@ export class Debugger {
 
   /** 1-based line the current step starts on, or null before the first step. @returns {number|null} */
   get line() {
-    return this.current === null ? null : this.lineOf(this.current.node.span.start);
+    return this.current === null ? null : this.lineOf(this.current.span.start);
   }
 
   /**
@@ -164,30 +208,31 @@ export class Debugger {
   }
 
   /**
-   * One `.next()`. Everything else here is a loop around this.
+   * One pause point. Everything else here is a loop around this.
    * @returns {boolean} whether execution is still live afterwards
    */
   step() {
     if (!this.canStep) return false;
     this.previousLine = this.line;
-    const result = this.iterator.next();
-    if (result.done) {
+    const advance = this.backend.next();
+    if (advance.done) {
       this.current = null;
-      this.finish(result.value);
+      this.finish(advance.outcome);
       return false;
     }
-    // Counted after the done check: the last `.next()` yields nothing, and a
+    // Counted after the done check: the last advance yields nothing, and a
     // step the user never got to see should not show up in the count.
     this.stepCount++;
     this.status = 'paused';
-    this.observe(result.value);
+    this.current = advance.pause;
+    this.record(advance.pause);
     return true;
   }
 
   /**
-   * Run until the line changes. Two yields per node means `1 + 2 * 3` is ten
-   * raw steps, and a debugger that takes ten clicks to cross one line reads
-   * as broken rather than as precise.
+   * Run until the line changes. A tree-walker step is half a node and a VM
+   * step is one instruction; either way a debugger that takes ten clicks to
+   * cross one line reads as broken rather than as precise.
    */
   stepLine() {
     const start = this.line;
@@ -197,18 +242,16 @@ export class Debugger {
   }
 
   /**
-   * Step a line without descending into a call. `base` is the depth to come
-   * back to: when the pause point is a call's *enter* step its frame is
-   * already pushed, so stepping over it means waiting for that frame to pop
-   * rather than for the depth the stack has right now.
+   * Step a line without descending into a call. The base to come back to is
+   * the depth of the frame this pause belongs to, which each backend reports
+   * for itself: the tree-walker has already pushed the callee's frame by the
+   * time it pauses on a call, and the VM has not.
    */
   stepOver() {
-    const here = this.current;
-    const onCall = here !== null && here.phase === 'enter' && here.node.type === 'CallExpression';
-    const base = onCall ? this.stack.length - 1 : this.stack.length;
+    const base = this.current === null ? 0 : this.current.callDepth;
     const start = this.line;
     while (this.step()) {
-      if (this.stack.length > base) continue;
+      if (this.current !== null && this.current.callDepth > base) continue;
       if (this.line === start) continue;
       break;
     }
@@ -245,7 +288,7 @@ export class Debugger {
   }
 
   /**
-   * The scope chain as it stands *now*, read from the live env the step is
+   * The scope chain as it stands *now*, read from the live env the pause is
    * holding rather than from anything copied out of it. Innermost first,
    * which is the order a name resolves in.
    * @returns {Scope[]}
@@ -264,61 +307,20 @@ export class Debugger {
   }
 
   /**
-   * Track the call stack and the origin of a failure by watching steps go
-   * past. The stack stays balanced even while an error unwinds: a signal is
-   * a return value here, so every node it travels through still yields its
-   * exit on the way out.
-   * @param {Step} step
-   */
-  observe(step) {
-    this.current = step;
-    this.record(step);
-
-    // Snapshot before the stack moves, so a call that fails on its own arity
-    // still reports itself as the frame it failed in.
-    if (step.phase === 'exit' && isSignal(step.value) && step.value.kind === 'error' && this.failure === null) {
-      this.failure = { message: step.value.message, node: step.value.node, stack: [...this.stack] };
-    }
-
-    if (step.node.type !== 'CallExpression') return;
-    if (step.phase === 'enter') {
-      // Pushed at the call's enter step, which is before the callee and the
-      // arguments have been evaluated — the frame shows up while the call is
-      // still being assembled. Naming it after the callee's source text is
-      // right whatever the expression is, including `makeCounter()()`.
-      this.stack.push({
-        name: this.text(step.node.callee.span),
-        node: step.node,
-        line: this.lineOf(step.node.span.start),
-      });
-    } else {
-      this.stack.pop();
-    }
-  }
-
-  /**
-   * Append one mark to the trace. An `enter` opens a level and an `exit`
-   * closes it, so `depth` is just how many enters are still open.
+   * Append one mark to the trace, which is what the ribbon draws.
    *
    * The trace has no natural end, and a loop will grow it without limit, so
    * it keeps the most recent `TRACE_LIMIT` marks and counts what fell off.
    * Dropping a quarter at a time keeps that from costing a shift per step.
-   * @param {Step} step
+   * @param {Pause} pause
    */
-  record(step) {
-    let depth;
-    if (step.phase === 'enter') {
-      this.depth++;
-      depth = this.depth;
-    } else {
-      depth = this.depth;
-      this.depth--;
-    }
+  record(pause) {
+    this.depth = pause.depth;
     this.trace.push({
-      depth,
-      phase: step.phase,
-      line: this.lineOf(step.node.span.start),
-      call: step.node.type === 'CallExpression',
+      depth: pause.depth,
+      phase: pause.phase,
+      line: this.lineOf(pause.span.start),
+      call: pause.call,
     });
     if (this.trace.length > TRACE_LIMIT) {
       const drop = Math.floor(TRACE_LIMIT / 4);
@@ -328,15 +330,19 @@ export class Debugger {
   }
 
   /**
-   * @param {Completion} completion
+   * @param {import('./backends.js').Outcome} outcome
    */
-  finish(completion) {
-    if (!isSignal(completion)) {
+  finish(outcome) {
+    // Nothing is paused any more, so there is no depth to report. Left at the
+    // last pause's value it would read as though execution were still inside
+    // something.
+    this.depth = 0;
+    if (outcome.ok) {
       this.status = 'done';
-      this.result = completion;
+      this.result = outcome.value;
       return;
     }
     this.status = 'error';
-    this.failure ??= { message: completion.message, node: completion.node, stack: [] };
+    this.failure = this.backend.failure ?? { message: outcome.message, span: outcome.span, frames: [] };
   }
 }
