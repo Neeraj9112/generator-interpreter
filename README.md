@@ -139,14 +139,28 @@ Five controls, each with its keyboard letter lit in the label. `line` and
 `over` are the ones that make the page usable; raw stepping on its own is too
 fine-grained to navigate with:
 
-- `step` takes one `yield`. Every node has an enter and an exit step, which
-  makes `1 + 2 * 3` about ten of them.
+- `step` takes one pause point: one `yield` on the tree-walker, where every
+  node has an enter and an exit, so `1 + 2 * 3` is about ten of them; one
+  instruction on the VM, where the same expression is six.
 - `line` runs until the current node starts on a different line, and will
   descend into a call to get there.
 - `over` does the same but waits out any call that starts on the way, so you
   skip a function body instead of walking it.
 - `run` goes to the end, or to the next breakpoint.
 - `reset` rewinds to the first step. Breakpoints stay.
+
+The `tree` / `vm` pair in the header picks which one executes. Both run the
+same program from the same source with the same breakpoints, and switching
+restarts it, because there is no way to carry a position across: one of them
+is sitting on a node and the other on an instruction.
+
+On `vm` a third column appears, showing the disassembly of the chunk being
+executed with the current instruction highlighted. It follows the top frame,
+so stepping into a call swaps the listing to the callee's body the way the
+source pane jumps to the callee's lines, and the operand column spells out
+what each operand refers to: a bare `CONST 3` is unreadable, and `CONST 3 ; 42`
+is why you would open the pane. The tree-walker has no instructions, so the
+column is not there on `tree`.
 
 The strip across the top is the yield stream itself, one column per step,
 rising with every enter and falling with every exit. A subtree comes out as an
@@ -172,3 +186,10 @@ empty scopes out until you tick `empty` in its header.
 When something fails, the call-stack pane freezes the stack as it stood at the
 moment of failure. The live stack has already unwound to nothing by the time
 the program stops, so drawing that one instead would leave the pane empty.
+
+The two stack panes read differently, and that is not a bug. The tree-walker
+pushes a frame when it enters a call expression, before the callee has been
+evaluated, so it can only name the frame after the source text that called it,
+and it counts `print` as a frame. The VM reads its own frame array, which holds
+the function actually running and never a builtin. A debugger can only tell you
+what its runtime can be asked.
