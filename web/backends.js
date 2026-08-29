@@ -73,6 +73,11 @@ export class TreeBackend {
     return 0;
   }
 
+  /** How this backend goes backwards, for a UI that has to say so. @returns {'replay'} */
+  get rewindsBy() {
+    return 'replay';
+  }
+
   /**
    * The tree-walker cannot step back, and this is not an omission.
    *
@@ -213,6 +218,11 @@ export class VmBackend {
   /** How many instructions the journal can still take back. @returns {number} */
   get reach() {
     return this.journal.steps.length;
+  }
+
+  /** @returns {'journal'} */
+  get rewindsBy() {
+    return 'journal';
   }
 
   /** @returns {Advance} */

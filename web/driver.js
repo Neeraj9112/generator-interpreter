@@ -273,6 +273,16 @@ export class Debugger {
     return this.backend.reach;
   }
 
+  /**
+   * How the backend goes backwards: by undoing a journal, or by running the
+   * program again. The difference is a bill rather than a behaviour, but it
+   * is one worth showing — `reach` only means something next to it.
+   * @returns {'journal'|'replay'}
+   */
+  get rewindsBy() {
+    return this.backend.rewindsBy;
+  }
+
   /** @returns {boolean} */
   get canStepBack() {
     return this.stepCount > (this.current === null ? 0 : 1);
