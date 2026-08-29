@@ -14,7 +14,7 @@ import { BACKENDS } from './backends.js';
 /** @typedef {import('./backends.js').TreeBackend} TreeBackend */
 /** @typedef {import('./backends.js').VmBackend} VmBackend */
 
-/** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean}} Mark */
+/** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean, output: number}} Mark */
 /** @typedef {{label: string, bindings: {name: string, value: Value}[]}} Scope */
 /** @typedef {'ready'|'paused'|'done'|'error'} Status */
 
@@ -31,6 +31,10 @@ export function inspect(value) {
 /**
  * How many marks the ribbon keeps. A while loop yields without bound, and the
  * recent window is the part anyone reads, so the front gets dropped.
+ *
+ * Kept comfortably above `JOURNAL_LIMIT` on purpose: stepping back reads the
+ * mark of the step it lands on, so the ribbon has to remember at least as far
+ * as the journal can reach.
  */
 const TRACE_LIMIT = 4000;
 
@@ -264,6 +268,76 @@ export class Debugger {
     }
   }
 
+  /** How many steps back the backend can still take without re-running anything. @returns {number} */
+  get reach() {
+    return this.backend.reach;
+  }
+
+  /** @returns {boolean} */
+  get canStepBack() {
+    return this.stepCount > (this.current === null ? 0 : 1);
+  }
+
+  /**
+   * One pause point backwards.
+   *
+   * A finished or failed program steps back onto its last live pause rather
+   * than one before it: that pause is where you were standing when you set
+   * it running, and the instruction it announced is the one that ended
+   * things — which is the one you came back to look at.
+   * @returns {boolean} whether it moved
+   */
+  stepBack() {
+    return this.back(this.current === null ? this.stepCount : this.stepCount - 1);
+  }
+
+  /**
+   * Rewind until step `target` is the one being paused on.
+   * @param {number} target
+   * @returns {boolean} whether it moved
+   */
+  back(target) {
+    if (target < 1 || this.status === 'ready') return false;
+    let moved = false;
+    while (this.current === null || this.stepCount > target) {
+      const pause = this.backend.back();
+      if (pause === null) return moved;
+      this.rewind(pause);
+      moved = true;
+    }
+    return moved;
+  }
+
+  /**
+   * Take the position back to the pause the backend has just restored.
+   *
+   * The backend put the *program* back; everything undone here is the
+   * debugger's own accounting of it. The mark left on the ribbon by that step
+   * is what the accounting is read from — it is the record of what this
+   * moment looked like the first time through.
+   * @param {Pause} pause
+   */
+  rewind(pause) {
+    // A terminal state has one more mark than it has live steps, because the
+    // step that ended the program yielded no pause of its own. Coming back
+    // from one lands on the last pause without giving a step up.
+    if (this.current !== null) {
+      this.trace.pop();
+      this.stepCount--;
+    }
+    this.current = pause;
+    this.status = 'paused';
+    this.result = undefined;
+    this.failure = null;
+
+    const mark = this.trace[this.trace.length - 1];
+    this.depth = mark.depth;
+    this.output.length = mark.output;
+    // What a breakpoint compares against, so that running on from here stops
+    // in the same places it would have the first time.
+    this.previousLine = this.trace.length > 1 ? this.trace[this.trace.length - 2].line : null;
+  }
+
   /**
    * A breakpoint fires on arriving at the line, not on every step taken
    * while sitting on it — otherwise a run stops ten times inside one
@@ -321,6 +395,11 @@ export class Debugger {
       phase: pause.phase,
       line: this.lineOf(pause.span.start),
       call: pause.call,
+      // What the output pane looked like at this step. `print` writes to a
+      // sink no backend has any way to take back, so stepping onto a mark
+      // truncates the pane to the length that mark remembers — which works
+      // because the pane is a log, and a log only ever grows.
+      output: this.output.length,
     });
     if (this.trace.length > TRACE_LIMIT) {
       const drop = Math.floor(TRACE_LIMIT / 4);

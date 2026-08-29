@@ -2,6 +2,7 @@
 import { evaluate, isSignal } from '../src/evaluate.js';
 import { compile, disassemble, formatLine, META, OP } from '../src/compile.js';
 import { execute, load } from '../src/vm.js';
+import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
 
 /** @typedef {import('../src/parser.js').Program} Program */
 /** @typedef {import('../src/parser.js').Span} Span */
@@ -64,6 +65,26 @@ export class TreeBackend {
 
   /** The tree-walker has no instructions to show. @returns {null} */
   code() {
+    return null;
+  }
+
+  /** Nothing here can be taken back a step. @returns {number} */
+  get reach() {
+    return 0;
+  }
+
+  /**
+   * The tree-walker cannot step back, and this is not an omission.
+   *
+   * A journal restores data, and data is not where this backend keeps its
+   * position: that lives in the JS call stack and a chain of suspended
+   * generators, one per node being evaluated. Nothing can rewind a suspended
+   * generator, and nothing can reconstruct one either. The driver's answer
+   * is to replay the program from the start instead — no journal, and
+   * trivially correct as long as nothing in the language is non-deterministic.
+   * @returns {null}
+   */
+  back() {
     return null;
   }
 
@@ -148,7 +169,13 @@ export class VmBackend {
   constructor(program, env, source) {
     this.source = source;
     this.chunk = compile(program);
-    this.machine = load(this.chunk, env);
+    /**
+     * A recording journal, which is the whole difference between this
+     * backend and the same VM run from a script: history costs memory per
+     * instruction, and a debugger is the one caller that means to spend it.
+     */
+    this.journal = new Journal(JOURNAL_LIMIT);
+    this.machine = load(this.chunk, env, this.journal);
     this.iterator = execute(this.machine);
     /** @type {Frame[]} */
     this.frames = [];
@@ -183,6 +210,11 @@ export class VmBackend {
     return { title: `${chunk.name}(${chunk.params.join(', ')})`, lines, pc };
   }
 
+  /** How many instructions the journal can still take back. @returns {number} */
+  get reach() {
+    return this.journal.steps.length;
+  }
+
   /** @returns {Advance} */
   next() {
     const result = this.iterator.next();
@@ -192,8 +224,34 @@ export class VmBackend {
       this.failure = { message: vm.message, span: vm.span, frames: this.displayFrames(vm.frames) };
       return { done: true, outcome: { ok: false, message: vm.message, span: vm.span } };
     }
+    return { done: false, pause: this.observe(result.value) };
+  }
 
-    const step = result.value;
+  /**
+   * One instruction backwards: undo the write, then walk in again.
+   *
+   * The generator suspended at the pause we are leaving is finished with —
+   * it holds a position we no longer want and there is no way to move it —
+   * so it goes, and a fresh one picks the machine up wherever the journal
+   * left it. Nothing runs: the loop yields before it executes, so the first
+   * `next` is the machine saying where it is.
+   * @returns {Pause|null} null when the journal no longer reaches this far back
+   */
+  back() {
+    if (!this.journal.undo(this.machine)) return null;
+    this.iterator = execute(this.machine);
+    const result = this.iterator.next();
+    if (result.done) return null;
+    // Stepping back out of a failure means it has not happened yet.
+    this.failure = null;
+    return this.observe(result.value);
+  }
+
+  /**
+   * @param {import('../src/vm.js').VmStep} step
+   * @returns {Pause}
+   */
+  observe(step) {
     this.shown = { chunk: step.chunk, pc: step.pc };
     this.frames = this.displayFrames(step.frames);
 
@@ -203,18 +261,15 @@ export class VmBackend {
     // which is the same shape the tree-walker's nesting depth produces.
     const top = step.frames[step.frames.length - 1];
     return {
-      done: false,
-      pause: {
-        span: step.span,
-        env: step.env,
-        label: META[step.op]?.name ?? `<${step.op}?>`,
-        // Every pause is before its instruction runs, so every one is an
-        // arrival. The tree-walker's two-phase step has no analogue here.
-        phase: 'enter',
-        depth: step.frames.length + (step.stack.length - top.base),
-        callDepth: step.frames.length,
-        call: step.op === OP.CALL,
-      },
+      span: step.span,
+      env: step.env,
+      label: META[step.op]?.name ?? `<${step.op}?>`,
+      // Every pause is before its instruction runs, so every one is an
+      // arrival. The tree-walker's two-phase step has no analogue here.
+      phase: 'enter',
+      depth: step.frames.length + (step.stack.length - top.base),
+      callDepth: step.frames.length,
+      call: step.op === OP.CALL,
     };
   }
 
