@@ -3,6 +3,7 @@
 /** @typedef {import('./env.js').Env} Env */
 /** @typedef {import('./values.js').Value} Value */
 /** @typedef {import('./vm.js').Frame} Frame */
+/** @typedef {import('./vm.js').Machine} Machine */
 
 /**
  * One write, remembered by what it overwrote. Nothing here says what the
@@ -163,6 +164,62 @@ export class Journal {
   bind(env, name, value) {
     if (this.recording) this.record({ k: 'bind', env, name, had: env.hasOwn(name), was: env.vars.get(name) });
     env.define(name, value);
+  }
+
+  /** Whether there is a boundary left to step back to. @returns {boolean} */
+  get canUndo() {
+    return this.steps.length > 0;
+  }
+
+  /**
+   * Put the machine back the way it was one instruction ago.
+   *
+   * Entries are applied in reverse, which is the only ordering that works
+   * when an instruction wrote to the same place twice — a return pops the
+   * stack, truncates it and pushes to it, and undoing those in the order
+   * they happened would leave the value in the wrong slot.
+   *
+   * What comes back is state, not position. The generator that was walking
+   * this machine is still suspended one instruction further on and cannot be
+   * moved; the caller drops it and starts a new one over the same machine,
+   * which is only possible because the machine *is* the position.
+   * @param {Machine} machine
+   * @returns {boolean} whether there was anything to undo
+   */
+  undo(machine) {
+    const step = this.steps.pop();
+    if (step === undefined) return false;
+    for (let i = step.length - 1; i >= 0; i--) {
+      const entry = step[i];
+      switch (entry.k) {
+        case 'pc':
+          entry.frame.pc = entry.pc;
+          break;
+        case 'push':
+          machine.stack.pop();
+          break;
+        case 'pop':
+          machine.stack.push(entry.value);
+          break;
+        case 'truncate':
+          for (const value of entry.values) machine.stack.push(value);
+          break;
+        case 'framePush':
+          machine.frames.pop();
+          break;
+        case 'framePop':
+          machine.frames.push(entry.frame);
+          break;
+        case 'scope':
+          entry.frame.env = entry.env;
+          break;
+        case 'bind':
+          if (entry.had) entry.env.define(entry.name, entry.was);
+          else entry.env.undefine(entry.name);
+          break;
+      }
+    }
+    return true;
   }
 }
 
