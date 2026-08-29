@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parse } from '../src/parser.js';
 import { run as runTree } from '../src/evaluate.js';
 import { compile, disassemble, META, OP } from '../src/compile.js';
-import { execute, run as runVm, MAX_FRAMES, VmError } from '../src/vm.js';
+import { execute, load, run as runVm, MAX_FRAMES, VmError } from '../src/vm.js';
 import { globals } from '../src/builtins.js';
 
 /** @typedef {import('../src/vm.js').VmStep} VmStep */
@@ -19,7 +19,7 @@ function trace(source, pick) {
   /** @type {string[]} */
   const output = [];
   const env = globals({ write: (line) => output.push(line) }).child();
-  const iter = execute(compile(parse(source)), env);
+  const iter = execute(load(compile(parse(source)), env));
   /** @type {T[]} */
   const steps = [];
   let step = iter.next();
@@ -47,7 +47,7 @@ test('the loop yields once per instruction, in the order they are listed', () =>
 });
 
 test('a pause happens before its instruction runs, not after', () => {
-  const iter = execute(compile(parse('1 + 2')), globals().child());
+  const iter = execute(load(compile(parse('1 + 2')), globals().child()));
   const first = /** @type {VmStep} */ (iter.next().value);
   assert.equal(first.pc, 0);
   assert.equal(first.op, OP.CONST);
@@ -116,7 +116,7 @@ test('a failure names the instruction it happened at', () => {
 });
 
 test('the iterator can be abandoned halfway and its state still reads', () => {
-  const iter = execute(compile(parse('let a = 1 let b = 2 let c = 3')), globals().child());
+  const iter = execute(load(compile(parse('let a = 1 let b = 2 let c = 3')), globals().child()));
   /** @type {import('../src/vm.js').VmStep|null} */
   let last = null;
   for (let i = 0; i < 6; i++) last = /** @type {VmStep} */ (iter.next().value);

@@ -1,7 +1,7 @@
 // @ts-check
 import { evaluate, isSignal } from '../src/evaluate.js';
 import { compile, disassemble, formatLine, META, OP } from '../src/compile.js';
-import { execute } from '../src/vm.js';
+import { execute, load } from '../src/vm.js';
 
 /** @typedef {import('../src/parser.js').Program} Program */
 /** @typedef {import('../src/parser.js').Span} Span */
@@ -148,7 +148,8 @@ export class VmBackend {
   constructor(program, env, source) {
     this.source = source;
     this.chunk = compile(program);
-    this.iterator = execute(this.chunk, env);
+    this.machine = load(this.chunk, env);
+    this.iterator = execute(this.machine);
     /** @type {Frame[]} */
     this.frames = [];
     /** @type {Failure|null} */
