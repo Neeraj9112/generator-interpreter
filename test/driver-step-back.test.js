@@ -44,103 +44,119 @@ function forward(dbg, count) {
   for (let i = 0; i < count; i++) assert.ok(dbg.step(), `the program ended after ${i} of ${count} steps`);
 }
 
-test('stepping back twenty times restores the view it started from (vm)', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm' });
-  forward(dbg, 10);
-  const before = view(dbg);
+// Both backends step back, by mechanisms that have nothing in common: the VM
+// undoes a journal, and the tree-walker runs the program again from the top.
+// Everything below is written against the debugger, which is the point —
+// what a user gets is the same either way, and only the bill differs.
+const BACKENDS = ['tree', 'vm'];
 
-  forward(dbg, 20);
-  assert.notDeepEqual(view(dbg), before, 'twenty steps should have changed something');
-  for (let i = 0; i < 20; i++) assert.ok(dbg.stepBack(), `step back ${i + 1} refused`);
+for (const backend of BACKENDS) {
+  test(`stepping back twenty times restores the view it started from (${backend})`, () => {
+    const dbg = new Debugger(COUNTER, { backend });
+    forward(dbg, 10);
+    const before = view(dbg);
 
-  assert.deepEqual(view(dbg), before);
-});
+    forward(dbg, 20);
+    assert.notDeepEqual(view(dbg), before, 'twenty steps should have changed something');
+    for (let i = 0; i < 20; i++) assert.ok(dbg.stepBack(), `step back ${i + 1} refused`);
 
-test('stepping back over a print takes the line out of the output pane (vm)', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm' });
-  while (dbg.output.length === 0 && dbg.step()) {
-    // run up to the first thing printed
-  }
-  assert.deepEqual(dbg.output, ['1']);
+    assert.deepEqual(view(dbg), before);
+  });
 
-  // The VM cannot unprint anything — the journal never saw the sink. What
-  // puts the pane back is the debugger, which owns it and keeps its length
-  // against every step.
-  assert.ok(dbg.stepBack());
-  assert.deepEqual(dbg.output, []);
-});
+  test(`stepping back over a print takes the line out of the output pane (${backend})`, () => {
+    const dbg = new Debugger(COUNTER, { backend });
+    while (dbg.output.length === 0 && dbg.step()) {
+      // run up to the first thing printed
+    }
+    assert.deepEqual(dbg.output, ['1']);
 
-test('stepping back from a finished program returns to its last pause (vm)', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm' });
-  dbg.run();
-  assert.equal(dbg.status, 'done');
-  const ended = dbg.stepCount;
+    // Neither backend can unprint anything: one never saw the sink and the
+    // other is not running any more. What puts the pane back is the debugger,
+    // which owns it and remembers its length against every step.
+    assert.ok(dbg.stepBack());
+    assert.deepEqual(dbg.output, []);
+  });
 
-  assert.ok(dbg.stepBack());
-  assert.equal(dbg.status, 'paused');
-  assert.equal(dbg.stepCount, ended, 'the last pause is where the run stopped, not a step before it');
-  assert.ok(dbg.current !== null);
+  test(`stepping back from a finished program returns to its last pause (${backend})`, () => {
+    const dbg = new Debugger(COUNTER, { backend });
+    dbg.run();
+    assert.equal(dbg.status, 'done');
+    const ended = dbg.stepCount;
 
-  // And running on from there ends the same way, with the output written
-  // once rather than twice.
-  dbg.run();
-  assert.equal(dbg.status, 'done');
-  assert.deepEqual(dbg.output, ['1', '2']);
-});
+    assert.ok(dbg.stepBack());
+    assert.equal(dbg.status, 'paused');
+    assert.equal(dbg.stepCount, ended, 'the last pause is where the run stopped, not a step before it');
+    assert.ok(dbg.current !== null);
 
-test('stepping back from a failure puts the failure back in the future (vm)', () => {
-  const dbg = new Debugger('let n = 1\nn + true\n', { backend: 'vm' });
-  dbg.run();
-  assert.equal(dbg.status, 'error');
-  const message = dbg.failure?.message;
-  assert.equal(message, "'+' expects two numbers or a string, got number 1 and boolean true");
+    // And running on from there ends the same way, with the output written
+    // once rather than twice.
+    dbg.run();
+    assert.equal(dbg.status, 'done');
+    assert.deepEqual(dbg.output, ['1', '2']);
+  });
 
-  assert.ok(dbg.stepBack());
-  assert.equal(dbg.status, 'paused');
-  const cleared = dbg.failure;
-  assert.equal(cleared, null, 'the error pane should clear: it has not happened yet');
+  test(`stepping back from a failure puts the failure back in the future (${backend})`, () => {
+    const dbg = new Debugger('let n = 1\nn + true\n', { backend });
+    dbg.run();
+    assert.equal(dbg.status, 'error');
+    const message = dbg.failure?.message;
+    assert.equal(message, "'+' expects two numbers or a string, got number 1 and boolean true");
 
-  dbg.run();
-  assert.equal(dbg.status, 'error');
-  assert.equal(dbg.failure?.message, message);
-});
+    assert.ok(dbg.stepBack());
+    assert.equal(dbg.status, 'paused');
+    const cleared = dbg.failure;
+    assert.equal(cleared, null, 'the error pane should clear: it has not happened yet');
 
-test('a breakpoint still fires after stepping back past it (vm)', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm', breakpoints: [4] });
-  dbg.run();
-  assert.equal(dbg.line, 4);
-  const first = view(dbg);
+    dbg.run();
+    assert.equal(dbg.status, 'error');
+    assert.equal(dbg.failure?.message, message);
+  });
 
-  for (let i = 0; i < 10; i++) assert.ok(dbg.stepBack());
-  assert.notEqual(dbg.line, 4);
+  test(`a breakpoint still fires after stepping back past it (${backend})`, () => {
+    const dbg = new Debugger(COUNTER, { backend, breakpoints: [4] });
+    dbg.run();
+    assert.equal(dbg.line, 4);
+    const first = view(dbg);
 
-  // Running on has to stop in the same place it stopped the first time,
-  // which is the whole reason the rewind puts `previousLine` back too.
-  dbg.run();
-  assert.deepEqual(view(dbg), first);
-});
+    for (let i = 0; i < 10; i++) assert.ok(dbg.stepBack());
+    assert.notEqual(dbg.line, 4);
 
-test('there is nowhere to step back to before the first step', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm' });
-  assert.equal(dbg.canStepBack, false);
-  assert.equal(dbg.stepBack(), false);
+    // Running on has to stop in the same place it stopped the first time,
+    // which is the whole reason the rewind puts `previousLine` back too.
+    dbg.run();
+    assert.deepEqual(view(dbg), first);
+  });
 
-  dbg.step();
-  assert.equal(dbg.canStepBack, false, 'the first pause is the beginning');
-  assert.equal(dbg.stepBack(), false);
+  test(`there is nowhere to step back to before the first step (${backend})`, () => {
+    const dbg = new Debugger(COUNTER, { backend });
+    assert.equal(dbg.canStepBack, false);
+    assert.equal(dbg.stepBack(), false);
 
-  dbg.step();
-  assert.equal(dbg.canStepBack, true);
-});
+    dbg.step();
+    assert.equal(dbg.canStepBack, false, 'the first pause is the beginning');
+    assert.equal(dbg.stepBack(), false);
 
-test('the journal reaches a bounded distance and the driver can say how far (vm)', () => {
-  const dbg = new Debugger(COUNTER, { backend: 'vm' });
-  assert.equal(dbg.reach, 0, 'nothing has run yet');
-  dbg.run();
-  assert.equal(dbg.reach, dbg.stepCount, 'the whole demo fits inside the journal');
+    dbg.step();
+    assert.equal(dbg.canStepBack, true);
+  });
+}
 
-  // The tree-walker keeps no journal at all, and reports as much.
+test('the two backends pay for step-back differently, and say so', () => {
+  const vm = new Debugger(COUNTER, { backend: 'vm' });
+  assert.equal(vm.reach, 0, 'nothing has run yet');
+  vm.run();
+  assert.equal(vm.reach, vm.stepCount, 'the whole demo fits inside the journal');
+  const machine = vm.backend;
+  vm.stepBack();
+  assert.equal(vm.backend, machine, 'the VM steps back in place, on the machine it was already running');
+
+  // The tree-walker keeps no journal, and stepping back is a fresh run of
+  // the whole program — a new backend object, where the VM kept its own.
   const tree = new Debugger(COUNTER, { backend: 'tree' });
   tree.run();
   assert.equal(tree.reach, 0);
+  const walker = tree.backend;
+  tree.stepBack();
+  assert.notEqual(tree.backend, walker, 'the tree-walker should have replayed from the start');
+  assert.equal(tree.status, 'paused');
 });

@@ -301,11 +301,39 @@ export class Debugger {
     let moved = false;
     while (this.current === null || this.stepCount > target) {
       const pause = this.backend.back();
-      if (pause === null) return moved;
+      // Either the backend cannot rewind at all, or its journal no longer
+      // reaches this far. Both have the same answer, and the second is why
+      // the cap does not turn into a wall.
+      if (pause === null) return this.replay(target) || moved;
       this.rewind(pause);
       moved = true;
     }
     return moved;
+  }
+
+  /**
+   * Step-back for a backend that cannot be rewound: throw the run away and
+   * do it again, stopping one step short of where it was.
+   *
+   * No journal, and correct by construction — the second run is the first
+   * run. What it costs is everything: each step back re-executes the whole
+   * program up to that point, and on the tree-walker each of those steps
+   * pays Phase 2's O(depth) `yield*` delegation. Fine at the scale a person
+   * clicks at, and the first thing checkpointing would fix.
+   *
+   * It is only correct at all because Pip is deterministic. There is no
+   * `rand`, no clock and no input, so a program has exactly one execution —
+   * the day one of those arrives, its results have to be recorded and
+   * replayed from the record.
+   * @param {number} target
+   * @returns {boolean} whether it landed on a pause
+   */
+  replay(target) {
+    this.reset();
+    while (this.stepCount < target && this.step()) {
+      // forward from the beginning, again
+    }
+    return this.current !== null;
   }
 
   /**
