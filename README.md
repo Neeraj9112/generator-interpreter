@@ -164,6 +164,13 @@ what each operand refers to: a bare `CONST 3` is unreadable, and `CONST 3 ; 42`
 is why you would open the pane. The tree-walker has no instructions, so the
 column is not there on `tree`.
 
+![The same breakpoint running on the VM: the instruction column listing inc()'s chunk with GET highlighted against the n it reads on line 4, and the ribbon reporting 43 instructions still undoable](docs/debugger-vm.png)
+
+Same program, same breakpoint as the picture at the top, other backend. The
+highlighted `GET` and the highlighted `n` on line 4 are the source map doing
+its one job. The stack pane names the frame `inc` where the tree-walker names
+it `a`, for the reason at the end of this file.
+
 The strip across the top is the yield stream itself, one column per step,
 rising with every enter and falling with every exit. A subtree comes out as an
 arch, a loop as a row of identical teeth, and a deep call as a tall block, so
