@@ -63,6 +63,17 @@ export class Env {
   }
 
   /**
+   * Take a binding back out of this scope. No Pip program can reach this —
+   * the language has no way to unbind a name — and nothing but stepping
+   * backwards has any business calling it: undoing a declaration means the
+   * scope has to stop knowing the name, not merely forget its value.
+   * @param {string} name
+   */
+  undefine(name) {
+    this.vars.delete(name);
+  }
+
+  /**
    * Read a name from wherever the chain binds it. The caller has to have
    * checked `resolve` first — an unbound name and one bound to nothing are
    * both `undefined` here, and only the evaluator can tell them apart.

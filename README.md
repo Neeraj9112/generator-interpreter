@@ -1,8 +1,8 @@
 # Pip
 
 A small dynamic language whose evaluator is a generator. Stepping the
-interpreter is a call to `.next()`, so single-stepping, breakpoints, and
-eventually step-back fall out of the design instead of being bolted on.
+interpreter is a call to `.next()`, so single-stepping, breakpoints and
+step-back fall out of the design instead of being bolted on.
 
 **[Open the debugger](https://neeraj9112.github.io/generator-interpreter/)**
 
@@ -135,10 +135,12 @@ module imports over `file://` are blocked, not because anything gets compiled.
 `print` is the one builtin, and it writes to the output pane. It takes a single
 argument, renders strings bare, and hands back nothing.
 
-Five controls, each with its keyboard letter lit in the label. `line` and
+Six controls, each with its keyboard letter lit in the label. `line` and
 `over` are the ones that make the page usable; raw stepping on its own is too
 fine-grained to navigate with:
 
+- `back` takes one pause point backwards. What that costs depends on which
+  backend is running; see below.
 - `step` takes one pause point: one `yield` on the tree-walker, where every
   node has an enter and an exit, so `1 + 2 * 3` is about ten of them; one
   instruction on the VM, where the same expression is six.
@@ -162,6 +164,13 @@ what each operand refers to: a bare `CONST 3` is unreadable, and `CONST 3 ; 42`
 is why you would open the pane. The tree-walker has no instructions, so the
 column is not there on `tree`.
 
+![The same breakpoint running on the VM: the instruction column listing inc()'s chunk with GET highlighted against the n it reads on line 4, and the ribbon reporting 43 instructions still undoable](docs/debugger-vm.png)
+
+Same program, same breakpoint as the picture at the top, other backend. The
+highlighted `GET` and the highlighted `n` on line 4 are the source map doing
+its one job. The stack pane names the frame `inc` where the tree-walker names
+it `a`, for the reason at the end of this file.
+
 The strip across the top is the yield stream itself, one column per step,
 rising with every enter and falling with every exit. A subtree comes out as an
 arch, a loop as a row of identical teeth, and a deep call as a tall block, so
@@ -169,6 +178,46 @@ the shape of a run is readable at a glance rather than only one instant of it.
 The cursor sits where execution is paused. Columns widen to fill the strip
 while a run is short; past a few thousand steps the trace keeps only the most
 recent window and says how many it dropped.
+
+## Stepping back
+
+Both backends step back, by two mechanisms with nothing in common.
+
+The VM journals every write it makes. An entry records what was there before
+rather than what the instruction did, because inverting a `pop` needs the value
+that came off and the instruction no longer has it. Going back means applying
+one step's entries in reverse, then dropping the generator that was walking the
+machine, which is suspended an instruction further on and cannot be moved, and
+starting a fresh one over the same machine. That last part only works because
+the VM's whole state is two arrays and a journal. A machine that is data can be
+put back and walked again. A suspended generator cannot.
+
+The tree-walker's position is not data. It is the JS call stack plus a chain of
+suspended generators, one per node being evaluated, and nothing can rewind a
+suspended generator or rebuild one. So it gets the other answer: throw the run
+away and replay the program from the start, stopping one step short. There is
+no journal to keep and nothing to get wrong, and every step back re-executes
+the program up to that point, each of those steps paying the O(depth) `yield*`
+delegation the evaluator is built on.
+
+Replay is only correct because Pip is deterministic. There is no `rand`, no
+clock and no input, so a program has exactly one execution. The day one of
+those arrives, its results have to be recorded and replayed from the record.
+
+The journal holds roughly the last thousand instructions, and the ribbon says
+exactly how many are still undoable. Past that edge the VM replays as well, so
+the cap makes step-back slower rather than unavailable.
+
+`print` is the exception on both. It writes to a sink neither backend has heard
+of, so nothing either of them undoes can take a line back out of the output
+pane. The debugger owns the pane and records its length at every step, and that
+is what shortens it on the way back.
+
+Clicking a column on the ribbon goes back to the step it draws. The strip then
+gets shorter, which is the honest thing for it to do: it draws what has
+happened, and after a step back the columns to the right have not happened.
+
+## Breakpoints and panes
 
 Click a line number to set a breakpoint. A breakpoint fires when execution
 *arrives* at the line from somewhere else, so a run stops once per visit rather

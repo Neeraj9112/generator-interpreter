@@ -107,6 +107,9 @@ button:disabled .key { color: inherit; }
   display: block;
   width: 100%;
   height: 56px;
+  /* Every column is a step you can go back to, so the strip is a control as
+     much as a picture. */
+  cursor: pointer;
 }
 
 .ribbon-foot {

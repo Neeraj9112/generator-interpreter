@@ -39,6 +39,7 @@ const MAX_COLUMN = 10;
 
 /** @type {Record<string, HTMLButtonElement>} */
 const buttons = {
+  back: /** @type {HTMLButtonElement} */ (el('back')),
   step: /** @type {HTMLButtonElement} */ (el('step')),
   stepLine: /** @type {HTMLButtonElement} */ (el('step-line')),
   stepOver: /** @type {HTMLButtonElement} */ (el('step-over')),
@@ -52,6 +53,14 @@ let editing = false;
 /** A program that would not load at all: bad syntax, or a misplaced `break`. @type {{label: string, message: string}|null} */
 let loadError = null;
 let backendName = 'tree';
+/**
+ * Where the ribbon's columns are, so a click on one can be turned back into
+ * the step it draws. Set by the last paint, because that is the only thing
+ * that knows how wide a column ended up and how far into the trace the
+ * visible window starts.
+ * @type {{start: number, column: number, count: number}|null}
+ */
+let ribbonView = null;
 
 /**
  * Rebuild the debugger around new source, carrying breakpoints and the
@@ -170,6 +179,7 @@ function renderRibbon() {
 
   if (dbg === null || dbg.trace.length === 0) {
     ui.ribbonCount.textContent = '';
+    ribbonView = null;
     return;
   }
 
@@ -188,6 +198,7 @@ function renderRibbon() {
   }
 
   const window_ = dbg.trace.slice(start);
+  ribbonView = { start, column, count: window_.length };
   const deepest = Math.max(...window_.map((mark) => mark.depth), 1);
   const usable = height - 8;
 
@@ -217,7 +228,13 @@ function renderRibbon() {
   ctx.fillRect(cursor, 0, 1, height);
 
   const dropped = dbg.dropped > 0 ? `, ${dbg.dropped} dropped` : '';
-  ui.ribbonCount.textContent = `${dbg.stepCount} steps, depth ${dbg.depth}${dropped}`;
+  // What stepping back will cost from here, which is the one thing about it
+  // a user cannot see for themselves: the VM undoes a bounded journal, and
+  // everything past its edge — and the whole of the tree-walker — is a
+  // replay of the program from the top.
+  const back = dbg.rewindsBy === 'journal' ? `, ${dbg.reach} undoable` : ', step back replays';
+  const steps = dbg.stepCount === 1 ? '1 step' : `${dbg.stepCount} steps`;
+  ui.ribbonCount.textContent = `${steps}, depth ${dbg.depth}${dropped}${back}`;
 }
 
 function renderScopes() {
@@ -363,6 +380,7 @@ function render() {
   ui.output.textContent = dbg === null ? '' : dbg.output.join('\n');
 
   const live = dbg !== null && dbg.canStep && !editing;
+  buttons.back.disabled = dbg === null || editing || !dbg.canStepBack;
   buttons.step.disabled = !live;
   buttons.stepLine.disabled = !live;
   buttons.stepOver.disabled = !live;
@@ -422,6 +440,7 @@ function control(move) {
 }
 
 const actions = {
+  back: control((debug) => debug.stepBack()),
   step: control((debug) => debug.step()),
   stepLine: control((debug) => debug.stepLine()),
   stepOver: control((debug) => debug.stepOver()),
@@ -429,6 +448,7 @@ const actions = {
   reset: control((debug) => debug.reset()),
 };
 
+buttons.back.addEventListener('click', actions.back);
 buttons.step.addEventListener('click', actions.step);
 buttons.stepLine.addEventListener('click', actions.stepLine);
 buttons.stepOver.addEventListener('click', actions.stepOver);
@@ -477,6 +497,19 @@ ui.backend.addEventListener('click', (event) => {
 // backing-store dimensions or the ribbon goes soft.
 window.addEventListener('resize', renderRibbon);
 
+// Clicking a column goes back to the step it draws. The ribbon then gets
+// shorter, which is the honest thing for it to do: it is a record of what has
+// happened, and after a step back the columns to the right have not happened.
+ui.ribbon.addEventListener('click', (event) => {
+  if (dbg === null || editing || ribbonView === null) return;
+  const { start, column, count } = ribbonView;
+  const index = Math.floor((event.clientX - ui.ribbon.getBoundingClientRect().left) / column);
+  if (index < 0 || index >= count) return;
+  // Column to step number: the window starts partway into the trace, and the
+  // trace starts partway into the run once marks have fallen off the front.
+  if (dbg.back(start + index + 1 + dbg.dropped)) render();
+});
+
 ui.source.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement) || !target.classList.contains('gutter')) return;
@@ -489,7 +522,7 @@ document.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (document.activeElement === ui.editor) return;
   /** @type {Record<string, () => void>} */
-  const keys = { s: actions.step, l: actions.stepLine, o: actions.stepOver, r: actions.run, e: actions.reset };
+  const keys = { b: actions.back, s: actions.step, l: actions.stepLine, o: actions.stepOver, r: actions.run, e: actions.reset };
   const action = keys[event.key.toLowerCase()];
   if (action === undefined) return;
   event.preventDefault();

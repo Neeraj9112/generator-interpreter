@@ -12,6 +12,7 @@
   <span class="brand">pip</span>
   <span class="rule"></span>
   <nav class="controls">
+    <button id="back"><span class="key">b</span>ack</button>
     <button id="step"><span class="key">s</span>tep</button>
     <button id="step-line"><span class="key">l</span>ine</button>
     <button id="step-over"><span class="key">o</span>ver</button>
@@ -28,7 +29,7 @@
 </header>
 
 <section class="ribbon">
-  <canvas id="ribbon" height="56"></canvas>
+  <canvas id="ribbon" height="56" title="click a column to step back to it"></canvas>
   <div class="ribbon-foot">
     <span class="legend"><i class="swatch enter"></i>enter <i class="swatch exit"></i>exit <i class="swatch stop"></i>breakpoint</span>
     <span id="ribbon-count" class="legend"></span>
