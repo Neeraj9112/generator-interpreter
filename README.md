@@ -2,7 +2,9 @@
 
 A small dynamic language whose evaluator is a generator. Stepping the
 interpreter is a call to `.next()`, so single-stepping, breakpoints and
-step-back fall out of the design instead of being bolted on.
+step-back fall out of the design instead of being bolted on. The garbage
+collector is a generator too, so a collection is something you step rather
+than something you infer from a number that changed.
 
 **[Open the debugger](https://neeraj9112.github.io/generator-interpreter/)**
 
@@ -216,6 +218,86 @@ is what shortens it on the way back.
 Clicking a column on the ribbon goes back to the step it draws. The strip then
 gets shorter, which is the honest thing for it to do: it draws what has
 happened, and after a step back the columns to the right have not happened.
+
+## The heap
+
+On the VM, strings, closures and scopes are not JS values held in JS
+variables. They live in an array of cells the VM owns, and everything reaches
+them by address. The tree-walker keeps plain JS values and lets JS collect
+them, which is most of why running the same program on both is worth doing:
+one backend has a heap you can look at and the other has one you cannot.
+
+That is the whole argument for the change. A JS reference is invisible to
+anything but JS, so "what is still reachable" is not a question the
+tree-walker can be asked at all. Once every edge between two objects is an
+address stored in a cell, the question is a walk.
+
+Values are read at the point of use and written at the point of storage, so
+the operator code never sees an address and means exactly what it meant
+before. Two strings built separately land in two different cells, and `==`
+still compares what they say rather than where they sit.
+
+Marking is tricolor. White is not known to be reachable, grey is reached but
+not yet looked through, and black is reached with everything it points at at
+least grey. No black cell ever points at a white one, and when no grey cells
+are left every cell is one or the other, with nothing in between.
+
+A closure holds the scope it captured and that scope binds the closure back,
+so `makeCounter` makes a cycle every time it is called. A reference count
+would never reach zero on either half. Marking does not care what points at
+what, only what can be reached from a root, so when nothing outside points in
+both go.
+
+Collection happens only between instructions. Inside one, a value can exist
+solely in a JS local that nothing can trace, and sweeping it there is a
+corruption that surfaces later, somewhere else, and only sometimes. Between
+two instructions every live value is on the operand stack, in a scope, or in
+the journal, and that is the only moment the claim is true.
+
+Sweeping puts addresses on a free list and hands them back last in, first out.
+A value therefore lands at the same address after an undo and a redo, which
+keeps the pane below from showing cells wander every time you scrub the
+ribbon. The bar for the next collection is a multiple of what survived the
+last one, because a collection costs what the live set costs.
+
+## Watching it collect
+
+The journal is a root, and that is not an implementation detail.
+
+A value the program has overwritten is unreachable from the machine and still
+needed, because stepping back has to be able to put it back. Collect without
+counting the journal and the heap stays correct right up until you press
+`back`, at which point a binding is restored to an address that has been swept
+and handed to something else. History is a root set, and that is the price of
+step-back being real rather than a demo.
+
+So a debugger frees far less than a script does, and the pane says how much
+less. One square per slot in address order, so the grid is the array.
+
+![The heap pane part-way through a collection: eighty-five cells, most of them grey, a run of seventeen at the right already blackened, and the cell at address 66 outlined as the mark phase reaches it](docs/debugger-gc.png)
+
+Paused inside a four hundred turn loop that builds a string every time round,
+eighty-five cells are live and seventy-seven of them are alive only because
+you can still step back to them. At rest the pane draws those fading, next to
+the hollow squares for the cells the code owns. Freed slots stay in the grid
+as gaps, which makes the free list something you can point at.
+
+Run the same loop from a script for a hundred thousand turns instead and it
+peaks at sixty-three live cells, never asking for more than sixty-four slots.
+Nothing is recording history there, so the garbage goes as soon as it is
+made.
+
+The journal being a root is also why the grid above greys all at once rather
+than spreading outward from a few roots. In a debugger nearly every cell *is* a root. What you can
+watch after that is the black creeping right to left as the worklist empties,
+one cell per click, with the cell being looked through outlined.
+
+`collect` yields between cells, so the same walk the VM drains between
+instructions is one the page can step. `next` takes a single cell and `finish`
+runs the rest. Moving the program settles a half-stepped collection first,
+because a heap left marked but not swept is not one an instruction may run
+against, and someone who clicks `step` in the middle of a collection means to
+run the program rather than to be told they cannot.
 
 ## Breakpoints and panes
 
