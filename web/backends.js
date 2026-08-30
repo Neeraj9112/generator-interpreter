@@ -10,6 +10,7 @@ import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
 /** @typedef {import('../src/env.js').Env} Env */
 /** @typedef {import('../src/values.js').Value} Value */
 /** @typedef {import('../src/heap.js').Heap} Heap */
+/** @typedef {import('../src/vm.js').Machine} Machine */
 
 /**
  * What the debugger needs to know about a pause point, whichever backend it
@@ -58,11 +59,13 @@ export class TreeBackend {
     this.source = source;
     this.iterator = evaluate(program, env);
     /**
-     * No heap, and that is the interesting half of the comparison: this
-     * backend keeps plain JS values and lets JS collect them, so there is
-     * nothing here for a collector to be shown doing.
-     * @type {Heap|null}
+     * No machine and no heap, and that is the interesting half of the
+     * comparison: this backend keeps plain JS values and lets JS collect
+     * them, so there is nothing here for a collector to be shown doing.
+     * @type {Machine|null}
      */
+    this.machine = null;
+    /** @type {Heap|null} */
     this.heap = null;
     /** @type {Frame[]} */
     this.frames = [];
