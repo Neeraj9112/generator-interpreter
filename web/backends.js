@@ -9,6 +9,7 @@ import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
 /** @typedef {import('../src/compile.js').Chunk} Chunk */
 /** @typedef {import('../src/env.js').Env} Env */
 /** @typedef {import('../src/values.js').Value} Value */
+/** @typedef {import('../src/heap.js').Heap} Heap */
 
 /**
  * What the debugger needs to know about a pause point, whichever backend it
@@ -56,6 +57,13 @@ export class TreeBackend {
   constructor(program, env, source) {
     this.source = source;
     this.iterator = evaluate(program, env);
+    /**
+     * No heap, and that is the interesting half of the comparison: this
+     * backend keeps plain JS values and lets JS collect them, so there is
+     * nothing here for a collector to be shown doing.
+     * @type {Heap|null}
+     */
+    this.heap = null;
     /** @type {Frame[]} */
     this.frames = [];
     /** @type {Failure|null} */
@@ -213,6 +221,15 @@ export class VmBackend {
       this.listings.set(chunk, lines);
     }
     return { title: `${chunk.name}(${chunk.params.join(', ')})`, lines, pc };
+  }
+
+  /**
+   * Where this backend's values actually live, so anything reading them —
+   * the inspector, and in Phase 7b the heap view — can follow a handle.
+   * @returns {Heap}
+   */
+  get heap() {
+    return this.machine.heap;
   }
 
   /** How many instructions the journal can still take back. @returns {number} */

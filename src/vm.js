@@ -1,6 +1,7 @@
 // @ts-check
 import { Env } from './env.js';
 import { BINARY_OP, OP } from './compile.js';
+import { Heap } from './heap.js';
 import { NO_JOURNAL } from './journal.js';
 import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, isTruthy } from './values.js';
 
@@ -9,6 +10,7 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
 /** @typedef {import('./values.js').Value} Value */
 /** @typedef {import('./values.js').Closure} Closure */
 /** @typedef {import('./journal.js').Journal} Journal */
+/** @typedef {import('./heap.js').Handle} Handle */
 
 /**
  * One call in progress. `pc` is where this frame resumes, `env` is its scope
@@ -18,19 +20,28 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
  * the same information in the JS call stack and a chain of suspended
  * generators, where nothing can read it, nothing can bound it, and nothing
  * can put it back. Here it is an array you can inspect, cap and rewind.
- * @typedef {{chunk: Chunk, pc: number, env: Env, base: number, name: string, callSpan: Span}} Frame
+ *
+ * `env` is a handle rather than a scope, so a frame's link to its scope is an
+ * address in the heap like every other edge between two objects. A collector
+ * can follow that; a JS reference it would have to be told about.
+ * @typedef {{chunk: Chunk, pc: number, env: Handle, base: number, name: string, callSpan: Span}} Frame
  */
 
 /**
- * The whole of the VM's state, and deliberately nothing but data: two arrays
- * and a journal. The generator below keeps nothing of its own across a
+ * The whole of the VM's state, and deliberately nothing but data: two arrays,
+ * a heap and a journal. The generator below keeps nothing of its own across a
  * yield, so the machine is separable from the generator walking it — hand
  * the same machine to a fresh generator and execution carries on from
  * exactly where the last one was suspended.
  *
  * That is what step-back is built on. A generator cannot be rewound; one of
  * these can be put back to what it was and walked again.
- * @typedef {{stack: Value[], frames: Frame[], journal: Journal}} Machine
+ *
+ * The stack and the scopes hold *words*: a number, a boolean, nothing, or a
+ * handle into the heap. Everything too big for a slot lives in the heap and
+ * is reached by address, which is what makes the object graph something the
+ * machine owns rather than something JS owns on its behalf.
+ * @typedef {{stack: Value[], frames: Frame[], journal: Journal, heap: Heap}} Machine
  */
 
 /**
@@ -39,7 +50,11 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
  * are the live arrays rather than copies — same bargain the tree-walker
  * makes with `env`, and for the same reason: a snapshot per instruction
  * would cost more than the program does.
- * @typedef {{pc: number, op: number, chunk: Chunk, span: Span, env: Env, frames: Frame[], stack: Value[]}} VmStep
+ *
+ * `env` arrives dereferenced, because every observer of a pause wants the
+ * scope and not its address. The values *inside* it are still words: an
+ * inspector showing them has the heap right here to read them with.
+ * @typedef {{pc: number, op: number, chunk: Chunk, span: Span, env: Env, frames: Frame[], stack: Value[], heap: Heap}} VmStep
  */
 
 /**
@@ -94,10 +109,16 @@ function fail(message, span, frames) {
  * @returns {Machine}
  */
 export function load(chunk, env, journal = NO_JOURNAL) {
+  const heap = new Heap(journal);
+  // The machine takes the chain over rather than borrowing it: `print` and
+  // every other binding already in it move into cells, so from here on there
+  // is no value the VM can reach that isn't in its own heap.
+  const root = heap.intern(env);
   return {
     stack: [],
-    frames: [{ chunk, pc: 0, env, base: 0, name: chunk.name, callSpan: chunk.spans[0] }],
+    frames: [{ chunk, pc: 0, env: root, base: 0, name: chunk.name, callSpan: chunk.spans[0] }],
     journal,
+    heap,
   };
 }
 
@@ -117,7 +138,7 @@ export function load(chunk, env, journal = NO_JOURNAL) {
  * @returns {Generator<VmStep, VmResult, void>}
  */
 export function* execute(machine) {
-  const { stack, frames, journal } = machine;
+  const { stack, frames, journal, heap } = machine;
 
   for (;;) {
     const frame = frames[frames.length - 1];
@@ -125,14 +146,17 @@ export function* execute(machine) {
     const pc = frame.pc;
     const op = code[pc];
     const span = frame.chunk.spans[pc];
+    const env = heap.envOf(frame.env);
 
-    yield { pc, op, chunk: frame.chunk, span, env: frame.env, frames, stack };
+    yield { pc, op, chunk: frame.chunk, span, env, frames, stack, heap };
 
     journal.mark(frame);
 
     switch (op) {
       case OP.CONST:
-        journal.push(stack, constants[code[pc + 1]]);
+        // Through the pool rather than straight out of `constants`, so a
+        // literal inside a loop is one cell the code owns and not one a turn.
+        journal.push(stack, heap.constant(frame.chunk, code[pc + 1]));
         frame.pc += 2;
         break;
 
@@ -143,7 +167,7 @@ export function* execute(machine) {
 
       case OP.GET: {
         const name = String(constants[code[pc + 1]]);
-        const owner = frame.env.resolve(name);
+        const owner = env.resolve(name);
         if (owner === null) return fail(`undefined variable '${name}'`, span, frames);
         journal.push(stack, owner.vars.get(name));
         frame.pc += 2;
@@ -154,7 +178,7 @@ export function* execute(machine) {
         // Resolved here rather than left to `Env.assign`, because the write
         // has to be journalled against the scope that actually owns the name.
         const name = String(constants[code[pc + 1]]);
-        const owner = frame.env.resolve(name);
+        const owner = env.resolve(name);
         if (owner === null) return fail(`assignment to undeclared variable '${name}'`, span, frames);
         journal.bind(owner, name, stack[stack.length - 1]);
         frame.pc += 2;
@@ -164,7 +188,7 @@ export function* execute(machine) {
       case OP.DEFINE:
         // Assignment and declaration both leave their value on the stack —
         // `let x = 1` is a statement whose value is 1, same as the tree-walker.
-        journal.bind(frame.env, String(constants[code[pc + 1]]), stack[stack.length - 1]);
+        journal.bind(env, String(constants[code[pc + 1]]), stack[stack.length - 1]);
         frame.pc += 2;
         break;
 
@@ -172,21 +196,25 @@ export function* execute(machine) {
         const proto = frame.chunk.protos[code[pc + 1]];
         /** @type {Closure} */
         const closure = { type: 'closure', name: proto.name, proto, env: frame.env };
+        // A cell of its own, holding the address of the scope it captured.
+        // That edge is what makes the heap a graph rather than a list, and it
+        // is the one that can close a cycle: the scope binds the closure back.
+        const handle = heap.write(closure);
         // Bound in the same env it captured, so a function can call itself.
-        journal.bind(frame.env, proto.name, closure);
-        journal.push(stack, closure);
+        journal.bind(env, proto.name, handle);
+        journal.push(stack, handle);
         frame.pc += 2;
         break;
       }
 
       case OP.PUSH_SCOPE:
-        journal.scope(frame, frame.env.child());
+        journal.scope(frame, heap.childEnv(frame.env));
         frame.pc += 1;
         break;
 
       case OP.POP_SCOPE:
         // Non-null by construction: the compiler emits these in pairs.
-        journal.scope(frame, /** @type {Env} */ (frame.env.parent));
+        journal.scope(frame, /** @type {Handle} */ (heap.parentOf(frame.env)));
         frame.pc += 1;
         break;
 
@@ -195,7 +223,7 @@ export function* execute(machine) {
         break;
 
       case OP.JUMP_IF_FALSE:
-        frame.pc += 2 + (isTruthy(journal.pop(stack)) ? 0 : code[pc + 1]);
+        frame.pc += 2 + (isTruthy(heap.read(journal.pop(stack))) ? 0 : code[pc + 1]);
         break;
 
       case OP.JUMP_IF_FALSE_KEEP:
@@ -203,7 +231,7 @@ export function* execute(machine) {
         // `&&` and `||` keep the operand that decided the answer and discard
         // the one that didn't, which is why these peek before they pop.
         const jumpWhen = op === OP.JUMP_IF_TRUE_KEEP;
-        if (isTruthy(stack[stack.length - 1]) === jumpWhen) {
+        if (isTruthy(heap.read(stack[stack.length - 1])) === jumpWhen) {
           frame.pc += 2 + code[pc + 1];
         } else {
           journal.pop(stack);
@@ -215,7 +243,7 @@ export function* execute(machine) {
       case OP.CALL: {
         const argc = code[pc + 1];
         const base = stack.length - argc - 1;
-        const callee = stack[base];
+        const callee = heap.read(stack[base]);
         if (!isCallable(callee)) return fail(`${describe(callee)} is not a function`, span, frames);
         if (argc !== arityOf(callee)) return fail(arityMessage(callee, argc), span, frames);
 
@@ -227,9 +255,13 @@ export function* execute(machine) {
           // reach: `print` writes to a sink the VM has never heard of. Putting
           // that back is the sink owner's problem, which is the argument for
           // an append-only one — undoing it is then a truncation.
-          const args = stack.slice(base + 1);
+          // A builtin is plain JS and knows nothing about the heap, so its
+          // arguments are read on the way in and its answer written on the
+          // way out. That boundary is the whole of what a builtin has to be
+          // told about any of this.
+          const args = stack.slice(base + 1).map((word) => heap.read(word));
           journal.truncate(stack, base);
-          journal.push(stack, callee.call(args));
+          journal.push(stack, heap.write(callee.call(args)));
           break;
         }
         if (callee.type !== 'closure') {
@@ -246,8 +278,9 @@ export function* execute(machine) {
         // Its bindings go in unjournalled: this instruction created the scope,
         // and undoing the frame push puts it beyond reach again, so there is
         // nobody left to notice them not being put back.
-        const callEnv = callee.env.child();
-        for (let i = 0; i < argc; i++) callEnv.define(callee.proto.params[i], stack[base + 1 + i]);
+        const callEnv = heap.childEnv(callee.env);
+        const scope = heap.envOf(callEnv);
+        for (let i = 0; i < argc; i++) scope.define(callee.proto.params[i], stack[base + 1 + i]);
         journal.truncate(stack, base);
         journal.pushFrame(frames, { chunk: callee.proto, pc: 0, env: callEnv, base, name: callee.name, callSpan: span });
         break;
@@ -263,24 +296,27 @@ export function* execute(machine) {
 
       case OP.NEG:
       case OP.NOT: {
-        const result = applyUnary(op === OP.NEG ? '-' : '!', journal.pop(stack));
+        const result = applyUnary(op === OP.NEG ? '-' : '!', heap.read(journal.pop(stack)));
         if (!result.ok) return fail(result.message, span, frames);
-        journal.push(stack, result.value);
+        journal.push(stack, heap.write(result.value));
         frame.pc += 1;
         break;
       }
 
       case OP.HALT:
-        return { ok: true, value: journal.pop(stack) };
+        return { ok: true, value: heap.read(journal.pop(stack)) };
 
       default: {
         const operator = BINARY_OP[op];
         if (operator === undefined) return fail(`vm: unknown opcode ${op}`, span, frames);
-        const right = journal.pop(stack);
-        const left = journal.pop(stack);
+        // Read both operands, hand them to the shared semantics, write the
+        // answer back. `values.js` never learns the heap exists, which is why
+        // an operator still means exactly what it meant on the tree-walker.
+        const right = heap.read(journal.pop(stack));
+        const left = heap.read(journal.pop(stack));
         const result = applyBinary(operator, left, right);
         if (!result.ok) return fail(result.message, span, frames);
-        journal.push(stack, result.value);
+        journal.push(stack, heap.write(result.value));
         frame.pc += 1;
         break;
       }

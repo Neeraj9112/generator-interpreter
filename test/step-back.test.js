@@ -8,6 +8,7 @@ import { globals } from '../src/builtins.js';
 import { describe } from '../src/values.js';
 
 /** @typedef {import('../src/env.js').Env} Env */
+/** @typedef {import('../src/heap.js').Handle} Handle */
 /** @typedef {import('../src/vm.js').Machine} Machine */
 /** @typedef {import('../src/vm.js').VmStep} VmStep */
 
@@ -85,23 +86,27 @@ function snapshot(machine) {
       chunk: frame.chunk.name,
       pc: frame.pc,
       base: frame.base,
-      scopes: chain(frame.env).map((env) => [...env.vars].map(([name, value]) => `${name}=${describe(value)}`)),
+      scopes: chain(machine, frame.env).map((env) => [...env.vars].map(([name, value]) => `${name}=${describe(machine.heap.read(value))}`)),
     })),
   };
 }
 
 /**
- * @param {Env} env
+ * A frame's scope chain, walked through the heap rather than through the
+ * `Env` objects' own `parent` links. Both routes lead to the same scopes,
+ * and this is the one the machine itself uses: a chain of addresses.
+ * @param {Machine} machine
+ * @param {Handle} env
  * @returns {Env[]}
  */
-function chain(env) {
+function chain(machine, env) {
   /** @type {Env[]} */
   const scopes = [];
-  /** @type {Env|null} */
-  let scope = env;
-  while (scope !== null) {
-    scopes.push(scope);
-    scope = scope.parent;
+  /** @type {Handle|null} */
+  let handle = env;
+  while (handle !== null) {
+    scopes.push(machine.heap.envOf(handle));
+    handle = machine.heap.parentOf(handle);
   }
   return scopes;
 }
@@ -111,7 +116,7 @@ function chain(env) {
  * @returns {Env[]}
  */
 function scopeObjects(machine) {
-  return machine.frames.flatMap((frame) => chain(frame.env));
+  return machine.frames.flatMap((frame) => chain(machine, frame.env));
 }
 
 test('stepping back twenty instructions restores the machine exactly', () => {
