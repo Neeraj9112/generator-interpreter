@@ -77,6 +77,25 @@ print(b())
       <h2>stack</h2>
       <div id="stack" class="stack"></div>
     </section>
+    <section id="heap-pane" hidden>
+      <h2>
+        heap <small id="heap-count"></small>
+        <span class="gc-controls">
+          <button id="gc-step" class="tiny">collect</button>
+          <button id="gc-finish" class="tiny quiet" hidden>finish</button>
+        </span>
+      </h2>
+      <div id="heap" class="heap"></div>
+      <div class="legend heap-legend">
+        <i class="swatch cell-str"></i>string
+        <i class="swatch cell-fn"></i>fn
+        <i class="swatch cell-env"></i>scope
+        <i class="swatch cell-fn cell-pinned"></i>pinned
+        <i class="swatch cell-env cell-history"></i>held by history
+        <i class="swatch cell-grey"></i>grey
+        <i class="swatch cell-black"></i>black
+      </div>
+    </section>
     <section>
       <h2>output <small>print</small></h2>
       <pre id="output" class="output"></pre>

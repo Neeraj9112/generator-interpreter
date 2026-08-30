@@ -1,4 +1,5 @@
 // @ts-check
+import { BLACK, GREY } from '../src/gc.js';
 import { Debugger, inspect } from './driver.js';
 
 /** @typedef {import('../src/parser.js').Span} Span */
@@ -30,6 +31,9 @@ const ui = {
   codePane: el('code-pane'),
   codeTitle: el('code-title'),
   code: el('code'),
+  heapPane: el('heap-pane'),
+  heapCount: el('heap-count'),
+  heap: el('heap'),
   main: /** @type {HTMLElement} */ (document.querySelector('main')),
 };
 
@@ -45,6 +49,8 @@ const buttons = {
   stepOver: /** @type {HTMLButtonElement} */ (el('step-over')),
   run: /** @type {HTMLButtonElement} */ (el('run')),
   reset: /** @type {HTMLButtonElement} */ (el('reset')),
+  gcStep: /** @type {HTMLButtonElement} */ (el('gc-step')),
+  gcFinish: /** @type {HTMLButtonElement} */ (el('gc-finish')),
 };
 
 /** @type {Debugger|null} */
@@ -271,6 +277,40 @@ function renderScopes() {
   }
 }
 
+/**
+ * The heap as a grid of slots, one square each.
+ *
+ * Colour says two different things depending on whether a collection is
+ * running. Idle, a square is its kind — string, function, scope — and the
+ * ones held only by the journal are called out, because "you can still step
+ * back to this" is the reason most of them are still here. Mid-collection,
+ * the squares turn grey and black as the mark phase reaches them, which is
+ * the whole of Phase 7 in one picture.
+ */
+function renderHeap() {
+  const view = dbg === null ? null : dbg.heapView();
+  ui.heapPane.hidden = view === null;
+  if (view === null) return;
+
+  const held = view.held > 0 ? ` · ${view.held} held by history` : '';
+  const phase = view.step === null ? '' : ` · ${view.step.phase}ing #${view.step.addr}`;
+  ui.heapCount.textContent = `${view.live} live · ${view.size} slots · ${view.collections} collected${held}${phase}`;
+
+  const grid = document.createDocumentFragment();
+  for (const cell of view.cells) {
+    const square = document.createElement('i');
+    square.className = `cell cell-${cell.kind}`;
+    if (cell.pinned) square.classList.add('cell-pinned');
+    if (cell.history) square.classList.add('cell-history');
+    if (cell.color === GREY) square.classList.add('cell-grey');
+    if (cell.color === BLACK) square.classList.add('cell-black');
+    if (view.step !== null && view.step.addr === cell.addr) square.classList.add('cell-at');
+    square.title = `#${cell.addr} ${cell.label}`;
+    grid.append(square);
+  }
+  ui.heap.replaceChildren(grid);
+}
+
 function renderStack() {
   ui.stack.replaceChildren();
   // Once something has failed, the interesting stack is the one from the
@@ -376,6 +416,7 @@ function render() {
   renderBackend();
   renderScopes();
   renderStack();
+  renderHeap();
   renderStatus();
   ui.output.textContent = dbg === null ? '' : dbg.output.join('\n');
 
@@ -386,6 +427,11 @@ function render() {
   buttons.stepOver.disabled = !live;
   buttons.run.disabled = !live;
   buttons.reset.disabled = dbg === null || editing;
+
+  const collecting = dbg !== null && dbg.collecting;
+  buttons.gcStep.disabled = dbg === null || dbg.heapView() === null || editing;
+  buttons.gcStep.textContent = collecting ? 'next' : 'collect';
+  buttons.gcFinish.hidden = !collecting;
 
   ui.source.hidden = editing;
   ui.editor.hidden = !editing;
@@ -446,6 +492,8 @@ const actions = {
   stepOver: control((debug) => debug.stepOver()),
   run: control((debug) => debug.run()),
   reset: control((debug) => debug.reset()),
+  gcStep: control((debug) => debug.stepCollect()),
+  gcFinish: control((debug) => debug.settleCollection()),
 };
 
 buttons.back.addEventListener('click', actions.back);
@@ -454,6 +502,8 @@ buttons.stepLine.addEventListener('click', actions.stepLine);
 buttons.stepOver.addEventListener('click', actions.stepOver);
 buttons.run.addEventListener('click', actions.run);
 buttons.reset.addEventListener('click', actions.reset);
+buttons.gcStep.addEventListener('click', actions.gcStep);
+buttons.gcFinish.addEventListener('click', actions.gcFinish);
 
 ui.edit.addEventListener('click', () => {
   if (editing) {

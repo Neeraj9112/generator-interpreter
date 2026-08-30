@@ -17,6 +17,10 @@
   --exit: #7a6a4a;
   --ok: #89b482;
   --stop: #ea6962;
+  --cell-str: #89b482;
+  --cell-fn: #d8a657;
+  --cell-env: #7daea3;
+  --cell-free: #1c1b18;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
 }
 
@@ -135,6 +139,54 @@ button:disabled .key { color: inherit; }
 .swatch.enter { background: var(--enter); }
 .swatch.exit { background: var(--exit); }
 .swatch.stop { background: var(--stop); }
+
+/* The heap.
+
+   One square per slot, in address order, so the grid *is* the array. Colour
+   carries two different meanings depending on what is happening: at rest it
+   is what the cell holds, and during a collection the mark phase repaints it
+   grey then black as it reaches it. Watching that spread out from the roots
+   is the whole of Phase 7 in one picture, which is why the collector is a
+   generator rather than a function that simply returns having done it. */
+
+.heap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 18px 10px;
+}
+
+.cell {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  background: currentColor;
+}
+
+.cell-free { color: var(--cell-free); }
+.cell-str { color: var(--cell-str); background: currentColor; }
+.cell-fn { color: var(--cell-fn); background: currentColor; }
+.cell-env { color: var(--cell-env); background: currentColor; }
+
+/* Hollow rather than filled: a pinned cell is the code's, not the program's,
+   and no collection will ever take it. */
+.cell-pinned { background: transparent; box-shadow: inset 0 0 0 2px currentColor; }
+
+/* Fading, because that is what these are doing. Garbage by the program's
+   reckoning, still held because the journal can put them back, and gone as
+   soon as the step that remembers them falls off the front of it. */
+.cell-history { opacity: 0.4; }
+
+/* Marking overrides kind: mid-collection the question is not what a cell
+   holds but whether anything can still reach it. */
+.cell-grey { color: var(--dim); background: currentColor; opacity: 1; }
+.cell-black { color: var(--fg); background: currentColor; opacity: 1; }
+.cell-at { outline: 1px solid var(--stop); outline-offset: 1px; }
+
+.heap-legend { padding: 0 18px 10px; white-space: normal; line-height: 1.9; }
+
+.gc-controls { margin-left: auto; display: flex; gap: 6px; }
+.tiny { font-size: 10px; padding: 1px 6px; }
 
 /* Body */
 

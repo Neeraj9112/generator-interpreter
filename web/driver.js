@@ -2,6 +2,7 @@
 import { parse } from '../src/parser.js';
 import { validate } from '../src/validate.js';
 import { globals, format } from '../src/builtins.js';
+import { collect, heldByHistory } from '../src/gc.js';
 import { BACKENDS } from './backends.js';
 
 /** @typedef {import('../src/parser.js').Program} Program */
@@ -13,6 +14,25 @@ import { BACKENDS } from './backends.js';
 /** @typedef {import('./backends.js').Failure} Failure */
 /** @typedef {import('./backends.js').TreeBackend} TreeBackend */
 /** @typedef {import('./backends.js').VmBackend} VmBackend */
+
+/** @typedef {import('../src/gc.js').GcStep} GcStep */
+/** @typedef {import('../src/gc.js').GcResult} GcResult */
+
+/**
+ * One slot, as the heap view draws it. `color` is the collector's own mark,
+ * so a half-stepped collection shows white, grey and black exactly as the
+ * algorithm left them.
+ * @typedef {{
+ *   addr: number,
+ *   kind: 'str'|'fn'|'env'|'free',
+ *   color: number,
+ *   pinned: boolean,
+ *   history: boolean,
+ *   label: string,
+ * }} HeapCell
+ */
+
+/** @typedef {{cells: HeapCell[], live: number, size: number, collections: number, threshold: number, held: number, step: GcStep|null}} HeapView */
 
 /** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean, output: number}} Mark */
 /** @typedef {{label: string, bindings: {name: string, value: Value}[]}} Scope */
@@ -26,6 +46,25 @@ import { BACKENDS } from './backends.js';
  */
 export function inspect(value) {
   return typeof value === 'string' ? JSON.stringify(value) : format(value);
+}
+
+/**
+ * The most slots the heap pane will draw. Past this the grid stops being a
+ * picture and starts being a wall, and the two reachability walks behind the
+ * history colouring stop being free.
+ */
+const HEAP_VIEW_LIMIT = 4096;
+
+/**
+ * What a cell holds, for the tooltip on its square.
+ * @param {import('../src/heap.js').Cell} cell
+ * @returns {string}
+ */
+function describeCell(cell) {
+  if (cell.k === 'str') return JSON.stringify(cell.text);
+  if (cell.k === 'fn') return `<fn ${cell.fn.name}>`;
+  const names = [...cell.env.vars.keys()];
+  return names.length === 0 ? 'scope {}' : `scope {${names.join(', ')}}`;
 }
 
 /**
@@ -100,6 +139,15 @@ export class Debugger {
     this.previousLine = null;
     /** @type {Mark[]} */
     this.trace = [];
+    /**
+     * A collection the user is stepping through by hand, paused between two
+     * of its own steps. The VM collects on its own as it runs; this is the
+     * one that can be watched.
+     * @type {Generator<GcStep, GcResult, void>|null}
+     */
+    this.collection = null;
+    /** @type {GcStep|null} */
+    this.gcStep = null;
     this.depth = 0;
     /** Steps dropped off the front of the trace once it hit its cap. */
     this.dropped = 0;
@@ -161,6 +209,8 @@ export class Debugger {
     this.stepCount = 0;
     this.previousLine = null;
     this.trace = [];
+    this.collection = null;
+    this.gcStep = null;
     this.depth = 0;
     this.dropped = 0;
     this.globalEnv = this.freshGlobals();
@@ -217,6 +267,7 @@ export class Debugger {
    */
   step() {
     if (!this.canStep) return false;
+    this.settleCollection();
     this.previousLine = this.line;
     const advance = this.backend.next();
     if (advance.done) {
@@ -308,6 +359,7 @@ export class Debugger {
    */
   back(target) {
     if (target < 1 || this.status === 'ready') return false;
+    this.settleCollection();
     let moved = false;
     while (this.current === null || this.stepCount > target) {
       const pause = this.backend.back();
@@ -423,6 +475,89 @@ export class Debugger {
       env = env.parent;
     }
     return scopes;
+  }
+
+  /**
+   * The heap as something to look at: every slot, what is in it, and what
+   * colour the collector has it at right now. Null on the tree-walker, which
+   * has no heap to show.
+   * @returns {HeapView|null}
+   */
+  heapView() {
+    const machine = this.backend.machine;
+    if (machine === null) return null;
+    const { heap } = machine;
+
+    // Only worth asking while the heap is small enough to draw. The answer
+    // costs two walks, and a pane that cannot render ten thousand squares
+    // has no use for the tenth thousand anyway.
+    const held = this.collection === null && heap.size <= HEAP_VIEW_LIMIT ? heldByHistory(machine) : new Set();
+
+    /** @type {HeapCell[]} */
+    const cells = [];
+    for (let addr = 0; addr < Math.min(heap.size, HEAP_VIEW_LIMIT); addr++) {
+      const cell = heap.cells[addr];
+      cells.push({
+        addr,
+        kind: cell === null ? 'free' : cell.k,
+        color: heap.colors[addr] ?? 0,
+        pinned: heap.pinned[addr] === true,
+        history: held.has(addr),
+        label: cell === null ? 'free' : describeCell(cell),
+      });
+    }
+
+    return {
+      cells,
+      live: heap.liveCount,
+      size: heap.size,
+      collections: heap.collections,
+      threshold: heap.threshold,
+      held: held.size,
+      step: this.gcStep,
+    };
+  }
+
+  /** Whether a collection is part-way through. @returns {boolean} */
+  get collecting() {
+    return this.collection !== null;
+  }
+
+  /**
+   * Start a collection, or take the next step of one already going.
+   *
+   * The same walk the VM performs on itself, driven a step at a time instead
+   * of drained. That is the whole reason the collector is a generator: a
+   * collection you can only read the outcome of teaches nothing, and this
+   * project's one idea is that making something a generator is what makes it
+   * possible to watch.
+   * @returns {boolean} whether a collection is still in progress afterwards
+   */
+  stepCollect() {
+    const machine = this.backend.machine;
+    if (machine === null) return false;
+    this.collection ??= collect(machine);
+    const step = this.collection.next();
+    if (step.done) {
+      this.collection = null;
+      this.gcStep = null;
+      return false;
+    }
+    this.gcStep = step.value;
+    return true;
+  }
+
+  /**
+   * Let a part-stepped collection run to the end. Called for its own sake by
+   * the finish control, and before any program motion: a heap left half
+   * marked is not a heap an instruction may run against.
+   */
+  settleCollection() {
+    if (this.collection === null) return;
+    let step = this.collection.next();
+    while (!step.done) step = this.collection.next();
+    this.collection = null;
+    this.gcStep = null;
   }
 
   /**
