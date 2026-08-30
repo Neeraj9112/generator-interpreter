@@ -37,6 +37,12 @@ export const PROGRAMS = [
   { name: 'greater or equal', source: '2 >= 2', result: 'boolean true' },
   { name: 'equality does not coerce', source: '1 == "1"', result: 'boolean false' },
   { name: 'inequality', source: '1 != 2', result: 'boolean true' },
+  // Two strings assembled separately are two different objects on the VM,
+  // living in two different heap cells. Equality has to be about what they
+  // say, not about where they are.
+  { name: 'equal strings built apart are equal', source: '"ab" == "a" + "b"', result: 'boolean true' },
+  { name: 'a built string orders like a literal one', source: '"a" + "pple" < "banana"', result: 'boolean true' },
+  { name: 'a built empty string is still falsy', source: 'if ("" + "") { "yes" } else { "no" }', result: 'string "no"' },
 
   // ---- truthiness ---------------------------------------------------------
   {
