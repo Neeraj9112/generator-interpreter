@@ -1,4 +1,5 @@
 // @ts-check
+import { Handle } from './heap.js';
 
 /** @typedef {import('./parser.js').Identifier} Identifier */
 /** @typedef {import('./parser.js').Block} Block */
@@ -13,10 +14,12 @@
  */
 
 /**
- * The same idea for the VM: a compiled chunk instead of an AST body. The env
- * field is identical, which is why closures behave the same on both backends
- * without either one knowing the other exists.
- * @typedef {{type: 'closure', name: string, proto: Chunk, env: Env}} Closure
+ * The same idea for the VM: a compiled chunk instead of an AST body, and the
+ * captured scope as a heap handle rather than a JS reference. That one field
+ * is the whole of the difference the heap makes to a closure — it still
+ * captures the scope it was defined in, and closures still behave the same on
+ * both backends without either one knowing the other exists.
+ * @typedef {{type: 'closure', name: string, proto: Chunk, env: Handle}} Closure
  */
 
 /**
@@ -33,7 +36,13 @@
  * Numbers, strings, booleans and functions. `undefined` is what a function
  * that never returns produces, and what an empty program evaluates to; the
  * language has no literal for it.
- * @typedef {number|string|boolean|undefined|Callable} Value
+ *
+ * A `Handle` is in the union because a VM slot can hold one, and a slot is
+ * typed by this. Nothing in this module can do anything with a handle: the
+ * heap is the VM's, and the VM reads a handle back to a value before any of
+ * these functions see it. The two branches below exist so that a read the VM
+ * forgot shows up as visibly wrong output rather than as `[object Object]`.
+ * @typedef {number|string|boolean|undefined|Callable|Handle} Value
  */
 
 /**
@@ -73,12 +82,13 @@ export function isTruthy(value) {
 
 /**
  * Every kind of function is an object, and nothing else in the language is,
- * so one check serves calling and `describe` alike.
+ * so one check serves calling and `describe` alike. A handle is an object too
+ * and is not a function, which is the one exception worth spelling out.
  * @param {Value} value
  * @returns {value is Callable}
  */
 export function isCallable(value) {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !(value instanceof Handle);
 }
 
 /**
@@ -111,6 +121,7 @@ export function arityMessage(callable, got) {
 export function describe(value) {
   if (value === undefined) return 'nothing';
   if (typeof value === 'string') return `string ${JSON.stringify(value)}`;
+  if (value instanceof Handle) return `cell ${value}`;
   if (isCallable(value)) return `function ${value.name}`;
   return `${typeof value} ${value}`;
 }
@@ -124,6 +135,7 @@ export function describe(value) {
  */
 export function format(value) {
   if (value === undefined) return 'nothing';
+  if (value instanceof Handle) return `<cell ${value}>`;
   if (isCallable(value)) return `<fn ${value.name}>`;
   return String(value);
 }

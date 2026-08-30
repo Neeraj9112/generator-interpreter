@@ -406,13 +406,20 @@ export class Debugger {
    * @returns {Scope[]}
    */
   scopes() {
+    // A binding on the VM holds a heap address, not a value. Reading it back
+    // happens here rather than further up, because this is the edge between
+    // the machine and everything that only wants to look at it: past this
+    // point a value is a value, and the UI never learns which backend it is
+    // watching. The tree-walker has no heap and needs no reading.
+    const heap = this.backend.heap;
     /** @type {Scope[]} */
     const scopes = [];
     /** @type {Env|null} */
     let env = this.current === null ? this.programEnv : this.current.env;
     while (env !== null) {
       const label = env === this.globalEnv ? 'builtins' : env === this.programEnv ? 'top level' : 'local';
-      scopes.push({ label, bindings: [...env.vars].map(([name, value]) => ({ name, value })) });
+      const bindings = [...env.vars].map(([name, value]) => ({ name, value: heap === null ? value : heap.read(value) }));
+      scopes.push({ label, bindings });
       env = env.parent;
     }
     return scopes;

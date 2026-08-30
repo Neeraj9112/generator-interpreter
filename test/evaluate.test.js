@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parse } from '../src/parser.js';
 import { Env } from '../src/env.js';
 import { evaluate, run, isTruthy, isSignal, EvalError } from '../src/evaluate.js';
+import { isCallable } from '../src/values.js';
 
 /** @typedef {import('../src/evaluate.js').Step} Step */
 /** @typedef {import('../src/evaluate.js').Completion} Completion */
@@ -13,7 +14,7 @@ import { evaluate, run, isTruthy, isSignal, EvalError } from '../src/evaluate.js
  */
 function show(result) {
   if (isSignal(result)) return `${result.kind}${result.kind === 'return' ? `(${show(result.value)})` : ''}`;
-  if (typeof result === 'object') return `fn ${result.name}`;
+  if (isCallable(result)) return `fn ${result.name}`;
   return `${result}`;
 }
 

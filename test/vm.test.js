@@ -5,9 +5,13 @@ import { run as runTree } from '../src/evaluate.js';
 import { compile, disassemble, META, OP } from '../src/compile.js';
 import { execute, load, run as runVm, MAX_FRAMES, VmError } from '../src/vm.js';
 import { globals } from '../src/builtins.js';
+import { Handle } from '../src/heap.js';
+import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
 
 /** @typedef {import('../src/vm.js').VmStep} VmStep */
 /** @typedef {import('../src/vm.js').VmResult} VmResult */
+/** @typedef {import('../src/vm.js').VmSuccess} VmSuccess */
+/** @typedef {import('../src/values.js').Value} Value */
 
 /**
  * @param {string} source
@@ -126,4 +130,42 @@ test('the iterator can be abandoned halfway and its state still reads', () => {
   let step = iter.next();
   while (!step.done) step = iter.next();
   assert.deepEqual(step.value, { ok: true, value: 3 });
+});
+
+test('every value the machine can reach is a word, never a bare string', () => {
+  const source = 'fn greet(who) { return "hi " + who } let g = greet("pip") g';
+  const { steps } = trace(source, (step) => step.stack.every((word) => typeof word !== 'string' && typeof word !== 'object' || word instanceof Handle));
+  assert.ok(steps.every(Boolean), 'something was pushed without going through the heap');
+});
+
+test('a closure and the scope it captured point at each other', () => {
+  // The cycle that makes reference counting the wrong answer and marking the
+  // right one: the scope binds the closure, and the closure holds the scope.
+  const env = globals().child();
+  const machine = load(compile(parse('fn f() { return 1 } f')), env);
+  const iter = execute(machine);
+  let step = iter.next();
+  while (!step.done) step = iter.next();
+
+  const { heap } = machine;
+  const value = /** @type {VmSuccess} */ (step.value);
+  const closure = /** @type {any} */ (value.value);
+  assert.equal(closure.type, 'closure');
+  const scope = heap.envOf(closure.env);
+  assert.equal(heap.read(/** @type {Value} */ (scope.vars.get('f'))), closure, 'the scope should bind the closure back');
+});
+
+test('stepping back over a loop leaves the heap the size it was', () => {
+  const journal = new Journal(JOURNAL_LIMIT);
+  const machine = load(compile(parse('let i = 0 let s = "" while (i < 5) { s = s + i i = i + 1 } s')), globals().child(), journal);
+  let iter = execute(machine);
+
+  for (let i = 0; i < 30; i++) iter.next();
+  const before = machine.heap.liveCount;
+
+  for (let i = 0; i < 20; i++) iter.next();
+  assert.ok(machine.heap.liveCount > before, 'the loop should have been making garbage');
+
+  for (let i = 0; i < 20; i++) assert.ok(journal.undo(machine), 'the journal ran out inside its own limit');
+  assert.equal(machine.heap.liveCount, before, 'stepping back should hand the cells back too');
 });

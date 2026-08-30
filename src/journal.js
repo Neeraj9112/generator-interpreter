@@ -2,6 +2,7 @@
 
 /** @typedef {import('./env.js').Env} Env */
 /** @typedef {import('./values.js').Value} Value */
+/** @typedef {import('./heap.js').Handle} Handle */
 /** @typedef {import('./vm.js').Frame} Frame */
 /** @typedef {import('./vm.js').Machine} Machine */
 
@@ -17,9 +18,10 @@
  * @typedef {{k: 'truncate', values: Value[]}} TruncateEntry
  * @typedef {{k: 'framePush'}} FramePushEntry
  * @typedef {{k: 'framePop', frame: Frame}} FramePopEntry
- * @typedef {{k: 'scope', frame: Frame, env: Env}} ScopeEntry
+ * @typedef {{k: 'scope', frame: Frame, env: Handle}} ScopeEntry
  * @typedef {{k: 'bind', env: Env, name: string, had: boolean, was: Value}} BindEntry
- * @typedef {PcEntry|PushEntry|PopEntry|TruncateEntry|FramePushEntry|FramePopEntry|ScopeEntry|BindEntry} Entry
+ * @typedef {{k: 'alloc', handle: Handle}} AllocEntry
+ * @typedef {PcEntry|PushEntry|PopEntry|TruncateEntry|FramePushEntry|FramePopEntry|ScopeEntry|BindEntry|AllocEntry} Entry
  */
 
 /**
@@ -145,7 +147,7 @@ export class Journal {
   /**
    * Move a frame to another scope, which is all a block entry or exit is.
    * @param {Frame} frame
-   * @param {Env} env
+   * @param {Handle} env
    */
   scope(frame, env) {
     this.record({ k: 'scope', frame, env: frame.env });
@@ -164,6 +166,21 @@ export class Journal {
   bind(env, name, value) {
     if (this.recording) this.record({ k: 'bind', env, name, had: env.hasOwn(name), was: env.vars.get(name) });
     env.define(name, value);
+  }
+
+  /**
+   * A cell the running program just allocated. Undoing the instruction takes
+   * the cell back, so stepping backwards and forwards over a loop doesn't
+   * leave the heap a little larger each time round — which would make the
+   * one number the collector is judged on depend on how much you fidgeted.
+   *
+   * Only allocations an instruction made are recorded. A constant, a builtin
+   * and the scope chain the machine was loaded with belong to the code, and
+   * the code does not change when you step back.
+   * @param {Handle} handle
+   */
+  allocated(handle) {
+    this.record({ k: 'alloc', handle });
   }
 
   /** Whether there is a boundary left to step back to. @returns {boolean} */
@@ -216,6 +233,9 @@ export class Journal {
         case 'bind':
           if (entry.had) entry.env.define(entry.name, entry.was);
           else entry.env.undefine(entry.name);
+          break;
+        case 'alloc':
+          machine.heap.free(entry.handle);
           break;
       }
     }
