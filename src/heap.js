@@ -7,6 +7,32 @@
 /** @typedef {import('./journal.js').Journal} Journal */
 
 /**
+ * The three colours a cell can be during a collection. They live here because
+ * the array that holds them does; what they *mean*, and the invariant that
+ * keeps a mark phase honest, belong to `gc.js`.
+ */
+export const WHITE = 0;
+export const GREY = 1;
+export const BLACK = 2;
+
+/** @type {Record<number, string>} */
+export const COLOR_NAME = { [WHITE]: 'white', [GREY]: 'grey', [BLACK]: 'black' };
+
+/**
+ * The smallest the collection threshold ever gets. Below this a program is
+ * cheaper to leave alone than to walk, and a threshold that can reach zero
+ * collects on every allocation.
+ */
+export const MIN_HEAP = 64;
+
+/**
+ * How much the live set has to grow before the next collection. Two is the
+ * usual answer: it bounds the wasted space at the size of the live set and
+ * gives each collection twice as much garbage to justify its walk.
+ */
+export const HEAP_GROWTH = 2;
+
+/**
  * A pointer into the heap, and the only way to reach anything in it.
  *
  * `addr` is the slot. `gen` is how many times that slot has been handed out,
@@ -111,6 +137,63 @@ export class Heap {
     this.pools = new WeakMap();
     /** How many slots hold something, kept as a count rather than recomputed. */
     this.liveCount = 0;
+    /**
+     * Cells the code owns rather than the program: constants, builtins, the
+     * scope chain the machine was loaded with. They are never swept and are
+     * always traced, which is how the collector reaches a top-level binding
+     * without having to enumerate a `WeakMap` it cannot iterate.
+     * @type {number[]}
+     */
+    this.pinnedAddrs = [];
+    /** Which slots are pinned, by address. @type {boolean[]} */
+    this.pinned = [];
+    /**
+     * Addresses a sweep gave back, newest first. Reuse is deliberately
+     * last-in-first-out: undoing an instruction and then redoing it then
+     * lands the same value at the same address, so a heap view does not show
+     * cells wandering every time you scrub the ribbon.
+     * @type {number[]}
+     */
+    this.freeList = [];
+    /**
+     * The tricolor mark, by address, using the constants in `gc.js`. Kept on
+     * the heap rather than inside the collector because the point of Phase 7
+     * is to watch a collection happen: the pane reads these between steps.
+     * @type {number[]}
+     */
+    this.colors = [];
+    /**
+     * The live count that triggers the next collection. Grows with the live
+     * set after every sweep, so a program with a genuinely large working set
+     * stops paying for collections that free nothing.
+     */
+    this.threshold = MIN_HEAP;
+    /** Collections run, which is the number the churn loop is judged on. */
+    this.collections = 0;
+  }
+
+  /** How many slots have ever been handed out. @returns {number} */
+  get size() {
+    return this.cells.length;
+  }
+
+  /**
+   * Whether the heap has grown enough since the last sweep to be worth
+   * walking again.
+   * @returns {boolean}
+   */
+  get due() {
+    return this.liveCount >= this.threshold;
+  }
+
+  /**
+   * Set the bar for the next collection from what survived this one. A
+   * multiple rather than a fixed step: the cost of a collection is a function
+   * of the live set, so the interval between them has to be too, or a program
+   * holding a million cells collects a million times.
+   */
+  retarget() {
+    this.threshold = Math.max(MIN_HEAP, Math.ceil(this.liveCount * HEAP_GROWTH));
   }
 
   /**
@@ -124,11 +207,29 @@ export class Heap {
    * @returns {Handle}
    */
   place(cell) {
-    const addr = this.cells.length;
-    this.cells.push(cell);
-    this.gens.push(0);
+    const handle = this.slot(cell);
+    this.pinned[handle.addr] = true;
+    this.pinnedAddrs.push(handle.addr);
+    return handle;
+  }
+
+  /**
+   * Take a slot, reusing one the sweep gave back if there is one. The
+   * generation on a reused slot is whatever `free` left it at, which is what
+   * makes the handle handed out here distinguishable from the one that
+   * pointed at the same address before.
+   * @param {Cell} cell
+   * @returns {Handle}
+   */
+  slot(cell) {
+    const reused = this.freeList.pop();
+    const addr = reused === undefined ? this.cells.length : reused;
+    this.cells[addr] = cell;
+    if (reused === undefined) this.gens[addr] = 0;
+    this.pinned[addr] = false;
+    this.colors[addr] = WHITE;
     this.liveCount++;
-    return new Handle(addr, 0);
+    return new Handle(addr, this.gens[addr]);
   }
 
   /**
@@ -139,7 +240,7 @@ export class Heap {
    * @returns {Handle}
    */
   alloc(cell) {
-    const handle = this.place(cell);
+    const handle = this.slot(cell);
     this.journal.allocated(handle);
     return handle;
   }
@@ -155,8 +256,21 @@ export class Heap {
     // freeing one through a stale pointer says so here rather than showing up
     // later as a live cell that has quietly gone missing.
     this.cell(handle);
-    this.cells[handle.addr] = null;
-    this.gens[handle.addr]++;
+    this.release(handle.addr);
+  }
+
+  /**
+   * Empty a slot by address, skipping the handle check. The sweep is the one
+   * caller entitled to this: it is holding the cell itself rather than a
+   * pointer to it, and half the point of a collector is to reclaim cells no
+   * live handle names any more.
+   * @param {number} addr
+   */
+  release(addr) {
+    this.cells[addr] = null;
+    this.gens[addr]++;
+    this.colors[addr] = WHITE;
+    this.freeList.push(addr);
     this.liveCount--;
   }
 
