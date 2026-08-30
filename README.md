@@ -18,6 +18,48 @@ dependencies that type-check the JavaScript through JSDoc and compile nothing.
 npm test        # node:test
 npm run typecheck
 npm run web     # the debugger on localhost:8080
+npm run pip -- examples/counter.pip
+```
+
+## Running a program
+
+`node src/cli.js file.pip` runs a file and prints whatever `print` wrote.
+
+```
+$ node src/cli.js examples/counter.pip
+1
+2
+1
+```
+
+The bytecode VM runs it by default. `--tree` picks the tree-walking evaluator
+instead, which is the same language by a different mechanism and should be
+indistinguishable from the outside. If the two ever disagree, one of them has
+a bug.
+
+Failures go to stderr with the line, a caret under the column, and an exit
+code: 2 if the program was rejected before it ran, 1 if it ran and then hit
+something, 3 if the invocation itself was wrong.
+
+```
+$ node src/cli.js boom.pip
+boom.pip:5:10: VmError: '+' expects two numbers or a string, got number 1 and boolean true
+5 |   return 1 + true
+             ^
+    in inner (line 2)
+    in outer (line 7)
+```
+
+The stack trace is the VM's own frame array. On `--tree` the same failure
+reports the same message and no trace, for the reason at the end of this file.
+
+`--stats` prints the heap figures when the program ends, which is where the
+numbers further down come from:
+
+```
+$ node src/cli.js --stats examples/churn.pip
+x99999
+heap: 6 live, 64 slots, 3572 collections
 ```
 
 ## Values

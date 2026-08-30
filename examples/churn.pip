@@ -1,0 +1,10 @@
+// Every turn builds a string and a scope and drops the previous ones, so the
+// collector has something to do. Run it with --stats.
+let i = 0
+let last = ""
+while (i < 100000) {
+  let s = "x" + i
+  last = s
+  i = i + 1
+}
+print(last)

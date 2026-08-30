@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "pip": "node src/cli.js",
     "test": "node --test",
     "typecheck": "tsc -p jsconfig.json",
     "web": "node web/serve.js"
