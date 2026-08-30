@@ -1,6 +1,7 @@
 // @ts-check
 import { Env } from './env.js';
 import { BINARY_OP, OP } from './compile.js';
+import { collectNow } from './gc.js';
 import { Heap } from './heap.js';
 import { NO_JOURNAL } from './journal.js';
 import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, isTruthy } from './values.js';
@@ -141,6 +142,13 @@ export function* execute(machine) {
   const { stack, frames, journal, heap } = machine;
 
   for (;;) {
+    // The only place a collection is safe. Between instructions, every value
+    // the program can still reach is on the stack, in a scope, or in the
+    // journal; *inside* one, a value can exist solely in a JS local that
+    // nothing can trace, and sweeping it there is a corruption that shows up
+    // later, somewhere else, and only sometimes.
+    if (heap.due) collectNow(machine);
+
     const frame = frames[frames.length - 1];
     const { code, constants } = frame.chunk;
     const pc = frame.pc;

@@ -200,3 +200,46 @@ test('the threshold grows with what survives', () => {
   machine.heap.retarget();
   assert.equal(machine.heap.threshold, 10000);
 });
+
+test('stepping back over a collection restores the machine rather than crashing', () => {
+  const journal = new Journal(1000);
+  const source = 'let i = 0 let last = "" while (i < 60) { let s = "x" + i last = s i = i + 1 } last';
+  const { machine, result } = ran(source, journal);
+  assert.deepEqual(result, { ok: true, value: 'x59' });
+  assert.ok(machine.heap.collections > 0, 'the loop never grew the heap enough to collect');
+
+  // Every step back reads through handles the collector has already walked
+  // past. A missed root shows up here as a HeapError, not as a wrong number.
+  let steps = 0;
+  while (journal.undo(machine)) steps++;
+  assert.ok(steps > 100, `only ${steps} steps were undone`);
+
+  const again = execute(machine);
+  let step = again.next();
+  while (!step.done) step = again.next();
+  assert.deepEqual(step.value, { ok: true, value: 'x59' }, 'the replay disagreed with the first run');
+});
+
+test('a churn loop allocating 100k objects holds steady live-set size', () => {
+  // Phase 7's "Done when". Every turn of the loop builds a string and a scope
+  // and drops the previous ones, so the program allocates 100k times over and
+  // is reachable from about twenty cells throughout.
+  const source = 'let i = 0 let last = "" while (i < 100000) { let s = "x" + i last = s i = i + 1 } last';
+  const env = globals().child();
+  const machine = load(compile(parse(source)), env);
+  const iter = execute(machine);
+
+  let peakLive = 0;
+  let step = iter.next();
+  while (!step.done) {
+    if (machine.heap.liveCount > peakLive) peakLive = machine.heap.liveCount;
+    step = iter.next();
+  }
+
+  assert.deepEqual(step.value, { ok: true, value: 'x99999' });
+  assert.ok(machine.heap.collections > 100, `only ${machine.heap.collections} collections ran`);
+  // Steady: the live set never leaves the band the threshold sets, and the
+  // free list means the heap never asks for more slots than that either.
+  assert.ok(peakLive <= MIN_HEAP, `live set peaked at ${peakLive}`);
+  assert.ok(machine.heap.size <= MIN_HEAP, `the heap grew to ${machine.heap.size} slots`);
+});
