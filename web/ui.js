@@ -1,9 +1,9 @@
 // @ts-check
 import { BLACK, GREY } from '../src/gc.js';
-import { Debugger, inspect } from './driver.js';
+import { DebugClient } from './client.js';
 
 /** @typedef {import('../src/parser.js').Span} Span */
-/** @typedef {import('./backends.js').Frame} Frame */
+/** @typedef {import('./client.js').Snapshot} Snapshot */
 
 /**
  * @param {string} id
@@ -53,8 +53,24 @@ const buttons = {
   gcFinish: /** @type {HTMLButtonElement} */ (el('gc-finish')),
 };
 
-/** @type {Debugger|null} */
-let dbg = null;
+/**
+ * The debugger, on its own thread.
+ *
+ * Everything below this line asks it questions and draws the answers. Nothing
+ * below this line can reach an `Env`, a `Heap` or a suspended generator, and
+ * that is not a restriction the page works around — it is the phase. A pane
+ * that used to read the interpreter's memory now sends `scopes` and waits.
+ */
+const client = new DebugClient(new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }));
+
+/** The last answer, and what every render function draws from. @type {Snapshot|null} */
+let snap = null;
+/** The source the adapter was launched with. The page keeps its own copy; asking for text it already has would be silly. */
+let source = '';
+/** @type {string[]} */
+let lines = [];
+/** @type {number[]} */
+let lineStarts = [0];
 let editing = false;
 /** A program that would not load at all: bad syntax, or a misplaced `break`. @type {{label: string, message: string}|null} */
 let loadError = null;
@@ -64,41 +80,101 @@ let backendName = 'tree';
  * the step it draws. Set by the last paint, because that is the only thing
  * that knows how wide a column ended up and how far into the trace the
  * visible window starts.
- * @type {{start: number, column: number, count: number}|null}
+ * @type {{start: number, column: number, count: number, dropped: number}|null}
  */
 let ribbonView = null;
+/**
+ * Which refresh is the current one.
+ *
+ * Answers arrive out of order once asking is asynchronous — a `stopped` event
+ * and a click can both start one, and the slower is not always the older.
+ * Only the newest is allowed to paint.
+ */
+let generation = 0;
+
+/**
+ * Index of every line start, so a source index becomes a line number by
+ * binary search rather than by counting newlines from the top.
+ * @param {string} text
+ * @returns {number[]}
+ */
+function lineStartsOf(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n') starts.push(i + 1);
+  }
+  return starts;
+}
+
+/**
+ * @param {number} index
+ * @returns {number}
+ */
+function lineOf(index) {
+  let lo = 0;
+  let hi = lineStarts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (lineStarts[mid] <= index) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo + 1;
+}
+
+/**
+ * Ask for the whole picture again and draw it.
+ *
+ * One call, several requests, and a render only if nothing newer has been
+ * asked for since. The synchronous version of this function was called
+ * `render`.
+ * @returns {Promise<void>}
+ */
+async function refresh() {
+  const mine = ++generation;
+  const next = await client.refresh({ traceCount: ribbonCapacity() });
+  if (mine !== generation) return;
+  snap = next;
+  render();
+}
+
+/** The most columns the ribbon could draw, which is all the trace worth asking for. @returns {number} */
+function ribbonCapacity() {
+  return Math.max(1, Math.floor(ui.ribbon.clientWidth / MIN_COLUMN));
+}
 
 /**
  * Rebuild the debugger around new source, carrying breakpoints and the
  * chosen backend across so editing a line doesn't silently drop either.
- * @param {string} source
- * @returns {boolean} whether the source loaded
+ * @param {string} text
+ * @returns {Promise<boolean>} whether the source loaded
  */
-function load(source) {
-  const breakpoints = dbg === null ? [] : [...dbg.breakpoints];
+async function load(text) {
+  const breakpoints = snap === null ? [] : snap.state.breakpoints;
+  source = text;
+  lines = text.split('\n');
+  lineStarts = lineStartsOf(text);
   try {
-    dbg = new Debugger(source, { breakpoints, backend: backendName });
+    await client.launch(text, { backend: backendName, breakpoints });
     loadError = null;
   } catch (err) {
-    dbg = null;
-    // A SemanticError is not a parse error, and calling it one sends you
-    // hunting for a typo in a line that is spelled correctly.
-    const label = err instanceof Error && err.name === 'ParseError' ? 'parse error' : 'rejected';
-    loadError = { label, message: err instanceof Error ? err.message : String(err) };
+    // The adapter labelled this: a SemanticError is not a parse error, and
+    // calling it one sends you hunting for a typo in a line that is spelled
+    // correctly.
+    const error = /** @type {Error} */ (err);
+    loadError = { label: error.name, message: error.message };
   }
-  render();
+  await refresh();
   return loadError === null;
 }
 
 /**
  * 1-based line and column of a source index, for error reporting.
- * @param {Debugger} debug
  * @param {number} index
  * @returns {string}
  */
-function where(debug, index) {
-  const line = debug.lineOf(index);
-  return `line ${line}, col ${index - debug.lineStarts[line - 1] + 1}`;
+function where(index) {
+  const line = lineOf(index);
+  return `line ${line}, col ${index - lineStarts[line - 1] + 1}`;
 }
 
 /**
@@ -128,23 +204,24 @@ function paintLine(code, text, lineStart, span) {
 
 function renderSource() {
   ui.source.replaceChildren();
-  if (dbg === null) return;
-  const span = dbg.current === null ? null : dbg.current.span;
-  const currentLine = dbg.line;
+  if (snap === null || !snap.state.loaded) return;
+  const span = snap.state.span;
+  const currentLine = snap.state.line;
+  const breakpoints = new Set(snap.state.breakpoints);
 
-  dbg.lines.forEach((text, index) => {
+  lines.forEach((text, index) => {
     const line = index + 1;
     const row = document.createElement('div');
     row.className = line === currentLine ? 'row current' : 'row';
 
     const gutter = document.createElement('button');
-    gutter.className = dbg?.breakpoints.has(line) ? 'gutter breakpoint' : 'gutter';
+    gutter.className = breakpoints.has(line) ? 'gutter breakpoint' : 'gutter';
     gutter.dataset.line = String(line);
     gutter.textContent = String(line);
 
     const code = document.createElement('div');
     code.className = 'code';
-    paintLine(code, text, /** @type {Debugger} */ (dbg).lineStarts[index], span);
+    paintLine(code, text, lineStarts[index], span);
 
     row.append(gutter, code);
     ui.source.append(row);
@@ -183,36 +260,28 @@ function renderRibbon() {
   ctx.fillStyle = ink('--rule');
   ctx.fillRect(0, base, width, 1);
 
-  if (dbg === null || dbg.trace.length === 0) {
+  const marks = snap === null ? [] : snap.trace.marks;
+  if (snap === null || marks.length === 0) {
     ui.ribbonCount.textContent = '';
     ribbonView = null;
     return;
   }
 
-  // Columns widen to fill the strip while a run is short, so a fresh program
-  // reads as a skyline rather than a smudge in the corner. Once the trace is
-  // long enough to overflow at the minimum width, the view becomes a window
-  // onto the most recent steps instead.
-  let column;
-  let start;
-  if (dbg.trace.length * MIN_COLUMN > width) {
-    column = MIN_COLUMN;
-    start = dbg.trace.length - Math.floor(width / column);
-  } else {
-    column = Math.min(MAX_COLUMN, width / dbg.trace.length);
-    start = 0;
-  }
-
-  const window_ = dbg.trace.slice(start);
-  ribbonView = { start, column, count: window_.length };
-  const deepest = Math.max(...window_.map((mark) => mark.depth), 1);
+  // The adapter was asked for as many marks as the strip can hold, so the
+  // window is already the right one and only the column width is left to
+  // decide. Columns widen to fill the strip while a run is short, so a fresh
+  // program reads as a skyline rather than a smudge in the corner.
+  const column = Math.min(MAX_COLUMN, width / marks.length);
+  ribbonView = { start: snap.trace.start, column, count: marks.length, dropped: snap.trace.dropped };
+  const deepest = Math.max(...marks.map((mark) => mark.depth), 1);
   const usable = height - 8;
+  const breakpoints = new Set(snap.state.breakpoints);
 
   // Columns butt up against each other rather than leaving a gap, so the tops
   // join into one continuous edge and the shape reads as a silhouette.
   const span = column + 0.5;
 
-  window_.forEach((mark, index) => {
+  marks.forEach((mark, index) => {
     const x = index * column;
     const y = base - Math.round((mark.depth / deepest) * usable);
 
@@ -222,30 +291,31 @@ function renderRibbon() {
     ctx.fillStyle = mark.phase === 'enter' ? ink('--enter') : ink('--exit');
     ctx.fillRect(x, y, span, 2);
 
-    if (dbg?.breakpoints.has(mark.line)) {
+    if (breakpoints.has(mark.line)) {
       ctx.fillStyle = ink('--stop');
       ctx.fillRect(x, base - 2, span, 2);
     }
   });
 
   // The cursor sits on the last column, which is where execution is paused.
-  const cursor = (window_.length - 1) * column;
+  const cursor = (marks.length - 1) * column;
   ctx.fillStyle = ink('--fg');
   ctx.fillRect(cursor, 0, 1, height);
 
-  const dropped = dbg.dropped > 0 ? `, ${dbg.dropped} dropped` : '';
+  const state = snap.state;
+  const dropped = snap.trace.dropped > 0 ? `, ${snap.trace.dropped} dropped` : '';
   // What stepping back will cost from here, which is the one thing about it
   // a user cannot see for themselves: the VM undoes a bounded journal, and
   // everything past its edge — and the whole of the tree-walker — is a
   // replay of the program from the top.
-  const back = dbg.rewindsBy === 'journal' ? `, ${dbg.reach} undoable` : ', step back replays';
-  const steps = dbg.stepCount === 1 ? '1 step' : `${dbg.stepCount} steps`;
-  ui.ribbonCount.textContent = `${steps}, depth ${dbg.depth}${dropped}${back}`;
+  const back = state.rewindsBy === 'journal' ? `, ${state.reach} undoable` : ', step back replays';
+  const steps = state.stepCount === 1 ? '1 step' : `${state.stepCount} steps`;
+  ui.ribbonCount.textContent = `${steps}, depth ${state.depth}${dropped}${back}`;
 }
 
 function renderScopes() {
   ui.scopes.replaceChildren();
-  if (dbg === null || dbg.current === null) {
+  if (snap === null || snap.scopes.length === 0) {
     ui.scopes.append(note('nothing running'));
     return;
   }
@@ -253,23 +323,23 @@ function renderScopes() {
   // block, and a closure chain stacks several of them. The empty ones are
   // real, but three blank boxes above the scope you came to read is a poor
   // first impression, so they are off by default rather than gone.
-  const scopes = dbg.scopes().filter((scope) => ui.showEmpty.checked || scope.bindings.length > 0);
+  const scopes = snap.scopes.filter((scope) => ui.showEmpty.checked || scope.variables.length > 0);
   for (const scope of scopes) {
     const block = document.createElement('div');
     block.className = 'scope';
 
     const label = document.createElement('div');
     label.className = 'scope-label';
-    label.textContent = scope.label;
+    label.textContent = scope.name;
     block.append(label);
 
-    if (scope.bindings.length === 0) {
+    if (scope.variables.length === 0) {
       block.append(note('empty'));
     } else {
-      for (const binding of scope.bindings) {
+      for (const variable of scope.variables) {
         const row = document.createElement('div');
         row.className = 'binding';
-        row.append(span('name', binding.name), span('value', binding.value));
+        row.append(span('name', variable.name), span('value', variable.value));
         block.append(row);
       }
     }
@@ -288,7 +358,7 @@ function renderScopes() {
  * the whole of Phase 7 in one picture.
  */
 function renderHeap() {
-  const view = dbg === null ? null : dbg.heapView();
+  const view = snap === null ? null : snap.heap;
   ui.heapPane.hidden = view === null;
   if (view === null) return;
 
@@ -311,31 +381,27 @@ function renderHeap() {
   ui.heap.replaceChildren(grid);
 }
 
+/**
+ * The call stack, drawn in the order `stackTrace` sends it: innermost first,
+ * bottoming out at the program itself. Once something has failed the adapter
+ * substitutes the stack from the moment it failed — the live one has already
+ * unwound to nothing, and showing that is the same as showing nothing.
+ */
 function renderStack() {
   ui.stack.replaceChildren();
-  // Once something has failed, the interesting stack is the one from the
-  // moment it failed. The live stack has already unwound to nothing by then,
-  // and showing that is the same as showing nothing at all.
-  const frames = dbg === null ? [] : dbg.failure?.frames ?? dbg.stack;
-  // Innermost first, the way a stack trace reads.
-  for (const frame of [...frames].reverse()) {
-    ui.stack.append(frameRow(frame));
+  for (const frame of snap === null ? [] : snap.frames) {
+    const row = document.createElement('div');
+    // The bottom frame is the program, which was never called from anywhere
+    // and has no line worth quoting.
+    if (frame.id === 0) {
+      row.className = 'frame top';
+      row.append(span('name', frame.name));
+    } else {
+      row.className = 'frame';
+      row.append(span('name', frame.name), document.createTextNode(' '), span('where', `line ${frame.line}`));
+    }
+    ui.stack.append(row);
   }
-  const bottom = document.createElement('div');
-  bottom.className = 'frame top';
-  bottom.append(span('name', '(top level)'));
-  ui.stack.append(bottom);
-}
-
-/**
- * @param {Frame} frame
- * @returns {HTMLElement}
- */
-function frameRow(frame) {
-  const row = document.createElement('div');
-  row.className = 'frame';
-  row.append(span('name', frame.name), document.createTextNode(' '), span('where', `line ${frame.line}`));
-  return row;
 }
 
 /**
@@ -344,7 +410,7 @@ function frameRow(frame) {
  * empty — the layout says which backend is running before the switch does.
  */
 function renderCode() {
-  const code = dbg === null ? null : dbg.code;
+  const code = snap === null ? null : snap.code;
   ui.codePane.hidden = code === null;
   ui.main.classList.toggle('with-code', code !== null);
   if (code === null) {
@@ -357,16 +423,16 @@ function renderCode() {
   ui.code.replaceChildren();
   /** @type {HTMLElement|null} */
   let currentRow = null;
-  for (const line of code.lines) {
+  for (const line of code.instructions) {
     const row = document.createElement('div');
-    row.className = line.pc === code.pc ? 'ins current' : 'ins';
+    row.className = line.address === code.address ? 'ins current' : 'ins';
     // The comment half is the operand spelled out; dimming it keeps the
     // opcode column readable as a column.
-    const [instruction, note] = splitNote(line.text);
+    const [instruction, comment] = splitNote(line.instruction);
     row.append(document.createTextNode(instruction));
-    if (note !== null) row.append(span('note', note));
+    if (comment !== null) row.append(span('note', comment));
     ui.code.append(row);
-    if (line.pc === code.pc) currentRow = row;
+    if (line.address === code.address) currentRow = row;
   }
   if (currentRow !== null) currentRow.scrollIntoView({ block: 'nearest' });
 }
@@ -393,19 +459,22 @@ function renderStatus() {
     show(ui.failure, loadError.message);
     return;
   }
-  if (dbg === null) return;
+  if (snap === null) return;
+  const state = snap.state;
 
-  if (dbg.failure !== null) {
-    show(ui.failure, `${dbg.failure.message} (${where(dbg, dbg.failure.span.start)})`);
+  if (state.failure !== null) {
+    show(ui.failure, `${state.failure.message} (${where(state.failure.span.start)})`);
   } else {
     hide(ui.failure);
   }
 
-  const parts = [`<b>${dbg.status}</b>`, `step ${dbg.stepCount}`];
-  if (dbg.current !== null) {
-    parts.push(`line ${dbg.line}`, `${dbg.current.phase} ${dbg.current.label}`);
+  // "running" is a status the page could not previously be in: the run held
+  // the thread, so there was no moment at which it could be drawn.
+  const parts = [`<b>${state.running ? 'running' : state.status}</b>`, `step ${state.stepCount}`];
+  if (state.line !== null) {
+    parts.push(`line ${state.line}`, `${state.phase} ${state.label}`);
   }
-  if (dbg.status === 'done') parts.push(`result ${inspect(dbg.result)}`);
+  if (state.status === 'done') parts.push(`result ${state.result}`);
   ui.status.innerHTML = parts.join(' &middot; ');
 }
 
@@ -418,18 +487,23 @@ function render() {
   renderStack();
   renderHeap();
   renderStatus();
-  ui.output.textContent = dbg === null ? '' : dbg.output.join('\n');
+  ui.output.textContent = snap === null ? '' : snap.state.output.join('\n');
 
-  const live = dbg !== null && dbg.canStep && !editing;
-  buttons.back.disabled = dbg === null || editing || !dbg.canStepBack;
+  const state = snap?.state ?? null;
+  const running = state?.running === true;
+  const live = state !== null && state.loaded && state.canStep && !running && !editing;
+  buttons.back.disabled = state === null || editing || running || !state.canStepBack;
   buttons.step.disabled = !live;
   buttons.stepLine.disabled = !live;
   buttons.stepOver.disabled = !live;
-  buttons.run.disabled = !live;
-  buttons.reset.disabled = dbg === null || editing;
+  // The one control that stays live mid-run, because it is the one that ends
+  // one. Nothing else can be asked for while the far side is stepping.
+  buttons.run.disabled = !live && !running;
+  buttons.run.textContent = running ? 'pause' : 'run';
+  buttons.reset.disabled = state === null || editing || running;
 
-  const collecting = dbg !== null && dbg.collecting;
-  buttons.gcStep.disabled = dbg === null || dbg.heapView() === null || editing;
+  const collecting = state?.collecting === true;
+  buttons.gcStep.disabled = snap === null || snap.heap === null || editing || running;
   buttons.gcStep.textContent = collecting ? 'next' : 'collect';
   buttons.gcFinish.hidden = !collecting;
 
@@ -474,26 +548,41 @@ function hide(node) {
 }
 
 /**
- * Every control does the same two things: move the debugger, then redraw.
- * @param {(debug: Debugger) => void} move
+ * Send one request and redraw.
+ *
+ * A motion answers before it has moved, so this redraw is the one that puts
+ * the page into its running state; the redraw that shows where it stopped is
+ * the `stopped` event's. A control that used to be "move the debugger, then
+ * render" is now two renders around a wait.
+ * @param {string} command
+ * @param {any} [args]
+ * @returns {Promise<void>}
  */
-function control(move) {
-  return () => {
-    if (dbg === null || editing) return;
-    move(dbg);
-    render();
-  };
+async function send(command, args) {
+  if (editing || snap === null) return;
+  try {
+    await client.request(command, args);
+  } catch (err) {
+    // A refused request — a motion while one is already running, a stale
+    // reference — is not worth a dialog. The redraw below says what the
+    // adapter actually thinks is going on, which is the useful answer.
+    console.warn(`${command}:`, err);
+  }
+  await refresh();
 }
 
 const actions = {
-  back: control((debug) => debug.stepBack()),
-  step: control((debug) => debug.step()),
-  stepLine: control((debug) => debug.stepLine()),
-  stepOver: control((debug) => debug.stepOver()),
-  run: control((debug) => debug.run()),
-  reset: control((debug) => debug.reset()),
-  gcStep: control((debug) => debug.stepCollect()),
-  gcFinish: control((debug) => debug.settleCollection()),
+  back: () => send('stepBack'),
+  step: () => send('stepIn'),
+  stepLine: () => send('stepIn', { granularity: 'line' }),
+  stepOver: () => send('next'),
+  // One button, two commands. Running is now a state the page can be in
+  // rather than a call it makes, so the control that starts it is also the
+  // control that ends it.
+  run: () => send(snap?.state.running === true ? 'pause' : 'continue'),
+  reset: () => send('restart'),
+  gcStep: () => send('pip/collect'),
+  gcFinish: () => send('pip/collect', { finish: true }),
 };
 
 buttons.back.addEventListener('click', actions.back);
@@ -505,12 +594,22 @@ buttons.reset.addEventListener('click', actions.reset);
 buttons.gcStep.addEventListener('click', actions.gcStep);
 buttons.gcFinish.addEventListener('click', actions.gcFinish);
 
-ui.edit.addEventListener('click', () => {
+// The adapter volunteers these; nothing here asked for them. A run started
+// minutes ago hitting a breakpoint arrives the same way as a step landing,
+// which is what makes the page a client rather than a caller.
+client.on('stopped', () => void refresh());
+client.on('terminated', () => void refresh());
+client.on('pip/crashed', (/** @type {{message: string}} */ body) => {
+  loadError = { label: 'adapter crashed', message: body.message };
+  render();
+});
+
+ui.edit.addEventListener('click', async () => {
   if (editing) {
     editing = false;
     // Source that doesn't parse leaves you in the editor rather than staring
     // at an empty pane with the text you have to fix hidden behind a button.
-    if (!load(ui.editor.value)) {
+    if (!(await load(ui.editor.value))) {
       editing = true;
       render();
       ui.editor.focus();
@@ -518,7 +617,7 @@ ui.edit.addEventListener('click', () => {
     return;
   }
   editing = true;
-  if (dbg !== null) ui.editor.value = dbg.source;
+  ui.editor.value = source;
   render();
   ui.editor.focus();
 });
@@ -528,7 +627,7 @@ ui.showEmpty.addEventListener('change', render);
 // Switching backend restarts the program on the other one, with the same
 // source and the same breakpoints. Comparing the two on one program is the
 // reason both are still here.
-ui.backend.addEventListener('click', (event) => {
+ui.backend.addEventListener('click', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const name = target.dataset.backend;
@@ -538,45 +637,47 @@ ui.backend.addEventListener('click', (event) => {
     renderBackend();
     return;
   }
-  if (dbg === null) load(ui.editor.value);
-  else dbg.setBackend(name);
-  render();
+  if (snap === null || !snap.state.loaded) await load(ui.editor.value);
+  else await send('pip/backend', { backend: name });
 });
 
 // The canvas is sized in CSS pixels, so a resize needs a redraw at the new
-// backing-store dimensions or the ribbon goes soft.
-window.addEventListener('resize', renderRibbon);
+// backing-store dimensions or the ribbon goes soft. A wider strip also holds
+// more columns than were asked for, so the trace window is re-requested.
+window.addEventListener('resize', () => void refresh());
 
 // Clicking a column goes back to the step it draws. The ribbon then gets
 // shorter, which is the honest thing for it to do: it is a record of what has
 // happened, and after a step back the columns to the right have not happened.
 ui.ribbon.addEventListener('click', (event) => {
-  if (dbg === null || editing || ribbonView === null) return;
-  const { start, column, count } = ribbonView;
+  if (editing || ribbonView === null || snap?.state.running === true) return;
+  const { start, column, count, dropped } = ribbonView;
   const index = Math.floor((event.clientX - ui.ribbon.getBoundingClientRect().left) / column);
   if (index < 0 || index >= count) return;
   // Column to step number: the window starts partway into the trace, and the
   // trace starts partway into the run once marks have fallen off the front.
-  if (dbg.back(start + index + 1 + dbg.dropped)) render();
+  void send('pip/goto', { target: start + index + 1 + dropped });
 });
 
 ui.source.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement) || !target.classList.contains('gutter')) return;
-  if (dbg === null) return;
-  dbg.toggleBreakpoint(Number(target.dataset.line));
-  render();
+  if (snap === null) return;
+  const line = Number(target.dataset.line);
+  const lines_ = new Set(snap.state.breakpoints);
+  if (!lines_.delete(line)) lines_.add(line);
+  void send('setBreakpoints', { lines: [...lines_] });
 });
 
 document.addEventListener('keydown', (event) => {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (document.activeElement === ui.editor) return;
-  /** @type {Record<string, () => void>} */
+  /** @type {Record<string, () => Promise<void>>} */
   const keys = { b: actions.back, s: actions.step, l: actions.stepLine, o: actions.stepOver, r: actions.run, e: actions.reset };
   const action = keys[event.key.toLowerCase()];
   if (action === undefined) return;
   event.preventDefault();
-  action();
+  void action();
 });
 
-load(ui.editor.value);
+void load(ui.editor.value);
