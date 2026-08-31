@@ -285,38 +285,73 @@ export class Debugger {
   }
 
   /**
-   * Run until the line changes. A tree-walker step is half a node and a VM
-   * step is one instruction; either way a debugger that takes ten clicks to
-   * cross one line reads as broken rather than as precise.
+   * A stepping rule, as something that can be picked up again.
+   *
+   * Every motion but a single step is "keep stepping while X", and X is
+   * usually measured against where the motion *began* — the line it started
+   * on, the frame it was standing in. Deciding that once and handing back a
+   * predicate is what lets `advance` stop halfway and be called again without
+   * the rule quietly re-anchoring itself to wherever it got to.
+   *
+   * `line` is the one rule that would survive being re-anchored, because
+   * being mid-motion means still being on the starting line. `over` would
+   * not: resumed from inside the call it is stepping over, it would take the
+   * callee's depth for the caller's and stop at the first thing it saw.
+   * @param {'line'|'over'|'run'} kind
+   * @returns {() => boolean} whether to keep going
    */
-  stepLine() {
-    const start = this.line;
-    while (this.step() && this.line === start) {
-      // still on the same line, keep going
+  motion(kind) {
+    if (kind === 'run') {
+      // Run to the end, or to the first breakpoint reached from another line.
+      return () => !this.atBreakpoint();
     }
+    // A tree-walker step is half a node and a VM step is one instruction;
+    // either way a debugger that takes ten clicks to cross one line reads as
+    // broken rather than as precise.
+    const start = this.line;
+    if (kind === 'line') return () => this.line === start;
+    // Step a line without descending into a call. The base to come back to is
+    // the depth of the frame this pause belongs to, which each backend reports
+    // for itself: the tree-walker has already pushed the callee's frame by the
+    // time it pauses on a call, and the VM has not.
+    const base = this.current === null ? 0 : this.current.callDepth;
+    return () => (this.current !== null && this.current.callDepth > base) || this.line === start;
   }
 
   /**
-   * Step a line without descending into a call. The base to come back to is
-   * the depth of the frame this pause belongs to, which each backend reports
-   * for itself: the tree-walker has already pushed the callee's frame by the
-   * time it pauses on a call, and the VM has not.
+   * Step until the rule says to stop, taking at most `budget` steps.
+   *
+   * The budget is the whole reason this is not a plain `while` loop. A motion
+   * over a call that never returns is unbounded, and once the debugger is
+   * running in a Worker the loop it is in is the loop that would have to
+   * notice a `pause` arriving. Handing back `budget` lets the caller breathe
+   * — drain its message queue, decide whether it still wants this — and then
+   * ask for more of the same motion.
+   * @param {() => boolean} more
+   * @param {number} [budget]
+   * @returns {'ended'|'stopped'|'budget'} why it came back
    */
-  stepOver() {
-    const base = this.current === null ? 0 : this.current.callDepth;
-    const start = this.line;
-    while (this.step()) {
-      if (this.current !== null && this.current.callDepth > base) continue;
-      if (this.line === start) continue;
-      break;
+  advance(more, budget = Infinity) {
+    for (let taken = 0; taken < budget; taken++) {
+      if (!this.step()) return 'ended';
+      if (!more()) return 'stopped';
     }
+    return 'budget';
+  }
+
+  /** Run until the line changes. */
+  stepLine() {
+    this.advance(this.motion('line'));
+  }
+
+  /** Step a line without descending into a call. */
+  stepOver() {
+    this.advance(this.motion('over'));
   }
 
   /** Run to the end, or to the first breakpoint reached from another line. */
   run() {
-    while (this.step()) {
-      if (this.atBreakpoint()) break;
-    }
+    this.advance(this.motion('run'));
   }
 
   /** How many steps back the backend can still take without re-running anything. @returns {number} */
