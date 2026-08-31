@@ -111,7 +111,7 @@ for (const backend of BACKENDS) {
     const dbg = make(COUNTER, backend, [5]);
     dbg.run();
     assert.equal(dbg.line, 5);
-    const bindings = dbg.scopes().flatMap((scope) => scope.bindings.map((b) => `${b.name}=${String(b.value)}`));
+    const bindings = dbg.scopes().flatMap((scope) => scope.bindings.map((b) => `${b.name}=${b.value}`));
     assert.ok(bindings.includes('n=1'), `expected n=1 among ${bindings.join(' ')}`);
   });
 }

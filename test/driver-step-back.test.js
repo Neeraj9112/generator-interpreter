@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Debugger, inspect } from '../web/driver.js';
+import { Debugger } from '../web/driver.js';
 
 const COUNTER = `fn makeCounter() {
   let n = 0
@@ -30,7 +30,7 @@ function view(dbg) {
     label: dbg.current?.label ?? null,
     depth: dbg.depth,
     output: [...dbg.output],
-    scopes: dbg.scopes().map((scope) => `${scope.label}: ${scope.bindings.map((b) => `${b.name}=${inspect(b.value)}`).join(' ')}`),
+    scopes: dbg.scopes().map((scope) => `${scope.label}: ${scope.bindings.map((b) => `${b.name}=${b.value}`).join(' ')}`),
     stack: dbg.stack.map((frame) => `${frame.name}@${frame.line}`),
     pc: dbg.code?.pc ?? null,
   };
