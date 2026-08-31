@@ -269,7 +269,7 @@ function renderScopes() {
       for (const binding of scope.bindings) {
         const row = document.createElement('div');
         row.className = 'binding';
-        row.append(span('name', binding.name), span('value', inspect(binding.value)));
+        row.append(span('name', binding.name), span('value', binding.value));
         block.append(row);
       }
     }

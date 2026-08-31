@@ -35,7 +35,15 @@ import { BACKENDS } from './backends.js';
 /** @typedef {{cells: HeapCell[], live: number, size: number, collections: number, threshold: number, held: number, step: GcStep|null}} HeapView */
 
 /** @typedef {{depth: number, phase: 'enter'|'exit', line: number, call: boolean, output: number}} Mark */
-/** @typedef {{label: string, bindings: {name: string, value: Value}[]}} Scope */
+
+/**
+ * A scope as the inspector reads it. `value` is already rendered, because
+ * this is the last place that can render it: past here a binding may have to
+ * cross a Worker boundary, and a closure holding a scope chain is not
+ * something that survives being cloned. Rendering at the source also keeps
+ * one answer to "how does a value read" rather than one per consumer.
+ * @typedef {{label: string, bindings: {name: string, value: string}[]}} Scope
+ */
 /** @typedef {'ready'|'paused'|'done'|'error'} Status */
 
 /**
@@ -505,7 +513,7 @@ export class Debugger {
     let env = this.current === null ? this.programEnv : this.current.env;
     while (env !== null) {
       const label = env === this.globalEnv ? 'builtins' : env === this.programEnv ? 'top level' : 'local';
-      const bindings = [...env.vars].map(([name, value]) => ({ name, value: heap === null ? value : heap.read(value) }));
+      const bindings = [...env.vars].map(([name, value]) => ({ name, value: inspect(heap === null ? value : heap.read(value)) }));
       scopes.push({ label, bindings });
       env = env.parent;
     }
