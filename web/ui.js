@@ -499,7 +499,7 @@ function render() {
   // The one control that stays live mid-run, because it is the one that ends
   // one. Nothing else can be asked for while the far side is stepping.
   buttons.run.disabled = !live && !running;
-  buttons.run.textContent = running ? 'pause' : 'run';
+  setLabel(buttons.run, running ? 'pause' : 'run', 'r');
   buttons.reset.disabled = state === null || editing || running;
 
   const collecting = state?.collecting === true;
@@ -511,6 +511,27 @@ function render() {
   ui.editor.hidden = !editing;
   ui.edit.textContent = editing ? 'load' : 'edit';
   ui.edit.setAttribute('aria-pressed', String(editing));
+}
+
+/**
+ * Set a control's label without losing the accented letter that names its
+ * keyboard shortcut.
+ *
+ * `textContent` is shorter and silently deletes the `<span class="key">` the
+ * markup came with, which is how the run control lost its `r` the moment it
+ * gained a second state. A label with no shortcut letter in it, like `pause`,
+ * simply gets no accent.
+ * @param {HTMLButtonElement} button
+ * @param {string} label
+ * @param {string} key
+ */
+function setLabel(button, label, key) {
+  const at = label.indexOf(key);
+  if (at === -1) {
+    button.textContent = label;
+    return;
+  }
+  button.replaceChildren(label.slice(0, at), span('key', key), label.slice(at + 1));
 }
 
 /**
