@@ -18,8 +18,10 @@ import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
  * is about to enter, an instruction the VM is about to run — and the UI is
  * built entirely on the shape rather than on either of them.
  *
- * `env` is the live scope chain, not a copy, so an inspector reading it sees
- * the moment as it actually stands.
+ * `env` is the live scope chain rather than a copy, and nothing outside the
+ * debugger ever sees it. `Debugger.scopes()` renders it on the way out,
+ * because a scope chain holding closures holding more scope chains is not
+ * something that survives crossing the protocol boundary.
  * @typedef {{
  *   span: Span,
  *   env: Env,

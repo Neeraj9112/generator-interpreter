@@ -496,8 +496,10 @@ export class Debugger {
 
   /**
    * The scope chain as it stands *now*, read from the live env the pause is
-   * holding rather than from anything copied out of it. Innermost first,
-   * which is the order a name resolves in.
+   * holding. Innermost first, which is the order a name resolves in.
+   *
+   * What comes back is data rather than the chain itself. This is the last
+   * place that can reach the env at all, so it is where values get rendered.
    * @returns {Scope[]}
    */
   scopes() {

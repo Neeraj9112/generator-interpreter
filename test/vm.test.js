@@ -67,7 +67,7 @@ test('every pause point maps back to a slice of the source', () => {
   assert.deepEqual(new Set(steps), new Set(['2', 'let n = 2', 'print', 'n', '1', 'n + 1', 'print(n + 1)', source]));
 });
 
-test('the env at a pause point is live, so an inspector reads it as it stands', () => {
+test('the env at a pause point is the live scope chain rather than a copy', () => {
   const source = 'let a = 1 let b = 2';
   const { steps } = trace(source, (step) => [...step.env.vars.keys()].join(','));
   assert.equal(steps[0], '', 'nothing is bound before the first instruction');
