@@ -1,6 +1,6 @@
 {
   "name": "generator-interpreter",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Pip — a small dynamic language whose evaluator is a generator",
   "type": "module",
   "private": true,
