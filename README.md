@@ -192,7 +192,8 @@ fine-grained to navigate with:
   descend into a call to get there.
 - `over` does the same but waits out any call that starts on the way, so you
   skip a function body instead of walking it.
-- `run` goes to the end, or to the next breakpoint.
+- `run` goes to the end, or to the next breakpoint. While it runs the button
+  reads `pause`, and clicking it stops the program where it stands.
 - `reset` rewinds to the first step. Breakpoints stay.
 
 The `tree` / `vm` pair in the header picks which one executes. Both run the
@@ -347,9 +348,10 @@ Click a line number to set a breakpoint. A breakpoint fires when execution
 *arrives* at the line from somewhere else, so a run stops once per visit rather
 than once per step taken while sitting there.
 
-The scopes pane walks the env chain from the innermost scope outward and reads
-each `Map` at the moment it draws, so what you see is the live binding rather
-than a copy taken when the step was yielded.
+The scopes pane lists the env chain from the innermost scope outward. The
+values are rendered by the interpreter when the pane asks for them, so what you
+see is each binding as it stood at that pause. The pane cannot read the
+bindings itself; see the last section for why.
 
 A call pushes two scopes rather than one: the parameters go in the call frame,
 and the body gets a scope of its own, because the body is an ordinary block.
@@ -366,3 +368,44 @@ evaluated, so it can only name the frame after the source text that called it,
 and it counts `print` as a frame. The VM reads its own frame array, which holds
 the function actually running and never a builtin. A debugger can only tell you
 what its runtime can be asked.
+
+## Off the main thread
+
+The interpreter runs in a Worker. The page has no access to it at all.
+
+This is not a speed change. The VM was never fast and was never meant to be.
+What changes is what the page is allowed to know. A pane used to read
+`step.env` and walk a live `Map`; `postMessage` clones whatever it sends, and a
+scope chain holding closures holding scope chains does not clone. So every pane
+that used to read the interpreter's memory now asks a question and waits.
+
+The questions are DAP's, the protocol VS Code speaks to every debugger it
+drives: `setBreakpoints`, `stackTrace`, `scopes`, `variables`, `stepIn`,
+`next`, `stepBack`, `disassemble`, `continue`, `pause`. `initialize` answers
+with capabilities, and one of them is `supportsStepBack: true`, which is a fair
+summary of what Phase 6 bought. The button was the easy half; the runtime being
+able to answer yes was the work. Three requests are Pip's own and wear a `pip/`
+prefix, because the ribbon, the heap grid and the status line are things this
+page draws that VS Code would draw for itself.
+
+`scopes` returns no bindings. It returns a name and an opaque number per scope,
+and `variables` redeems one number for its contents. The extra round trip looks
+like ceremony until you notice the number stands for a scope that exists *at
+this pause*. The adapter throws them all away on the next stop, so a reference
+held across a step fails loudly instead of quietly answering with a scope that
+has already been popped.
+
+Motion commands answer before they have moved anything. The reply is an
+acknowledgement, and where the program stopped arrives later as a `stopped` or
+`terminated` event nobody asked for. That asymmetry is what makes this a
+protocol rather than a function call, and it is what makes the last control
+work. `run` used to hold the thread until the program ended. Now it starts a
+loop on the other side that hands its event loop a turn every two thousand
+steps, so a `pause` sent mid-run is actually seen. `while (true) { i = i + 1 }`
+is a program you can start and stop rather than a tab you have to close.
+
+Three files. `web/protocol.js` is the adapter and knows nothing about threads,
+`web/worker.js` is the nine lines that give it a mailbox, and `web/client.js`
+is the page's half. The tests wire a client to an adapter in one thread over a
+pair of ports that clone what they carry, which is why "nothing live crosses
+the boundary" is an assertion rather than an intention.
