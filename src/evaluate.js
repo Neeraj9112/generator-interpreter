@@ -33,7 +33,7 @@ export { isTruthy } from './values.js';
 /** @typedef {'return'|'break'|'continue'|'error'} SignalKind */
 
 /**
- * Evaluating a node either produces a value or unwinds — the two are not the
+ * Evaluating a node either produces a value or unwinds. The two are not the
  * same kind of thing, and every `yield*` site has to tell them apart.
  * @typedef {Value|Signal} Completion
  */
@@ -55,7 +55,7 @@ export { isTruthy } from './values.js';
  * a loop catches `break` and `continue`, a call catches `return`, and only
  * `run()` catches `error`. A JS `throw` travelling up a `yield*` chain would
  * skip every pause point on the way out, making the unwind invisible to the
- * debugger and impossible to resume — which is the whole reason for this.
+ * debugger and impossible to resume, which is the whole reason for this.
  */
 export class Signal {
   /**
@@ -93,7 +93,7 @@ function fail(node, message) {
 /**
  * A signal that reached somewhere nothing catches it. An `error` keeps going.
  * A `return`, `break` or `continue` that got this far was never inside the
- * thing it exits, so it becomes an error — `break` with no loop around it is
+ * thing it exits, so it becomes an error. `break` with no loop around it is
  * a mistake, not a control-flow request.
  * @param {Signal} signal
  * @returns {Signal}
@@ -118,8 +118,8 @@ export class EvalError extends Error {
 
 /**
  * Evaluate `node` in `env`, recursing with `yield*` so a driver stepping
- * the outer iterator can pause at any depth of the tree — no plain
- * recursive call ever runs a subtree to completion in one go.
+ * the outer iterator can pause at any depth of the tree. No plain recursive
+ * call ever runs a subtree to completion in one go.
  * @param {Node} node
  * @param {Env} env
  * @returns {Generator<Step, Completion, void>}
@@ -233,7 +233,7 @@ function* evalLet(node, env) {
 }
 
 /**
- * Assignment writes through to whichever scope owns the name — it never
+ * Assignment writes through to whichever scope owns the name and never
  * declares one. That is what makes a captured variable shared: the closure
  * and its defining scope are looking at the same `Map` entry.
  * @param {AssignmentExpression} node
@@ -340,8 +340,8 @@ function* evalCall(node, env) {
   if (callee.type === 'native') return callee.call(args);
 
   // A compiled closure has a chunk where this evaluator wants an AST body.
-  // Nothing hands one over in practice — the two backends never share a heap
-  // — but saying so beats a `TypeError` from deep inside if that ever changes.
+  // Nothing hands one over in practice, since the two backends never share a
+  // heap, but saying so beats a `TypeError` from deep inside if that changes.
   if (callee.type === 'closure') return fail(node, `${callee.name} is compiled and can only be called by the VM`);
 
   const frame = callee.env.child();
@@ -399,7 +399,7 @@ function* evalBinary(node, env) {
 /**
  * Drain the iterator for non-debug use: run to completion and return the
  * final value, discarding every intermediate step. This is the boundary
- * where the sentinel stops being data and becomes a JS exception — inside
+ * where the sentinel stops being data and becomes a JS exception: inside
  * the evaluator an error is a value that propagates, outside it is a throw.
  * @param {Node} node
  * @param {Env} [env]

@@ -10,7 +10,7 @@ import { Debugger, inspect } from './driver.js';
 /**
  * The wire format, which is DAP's: a request carries a `seq` the reply quotes
  * back in `request_seq`, and an event carries no reply at all. The two halves
- * are deliberately not symmetric — that asymmetry is the whole point of the
+ * are deliberately not symmetric, and that asymmetry is the point of the
  * shape. A debugger that only ever answered questions could be a function
  * call; what makes it a protocol is that the far side also volunteers things,
  * and "the program stopped" is the thing it volunteers.
@@ -80,7 +80,7 @@ export class AdapterError extends Error {
  *
  * The number is a latency budget, not a performance one. Between two slices
  * the adapter drains its message queue, so this is how long a `pause` can sit
- * unanswered while a `while (true)` runs — a few milliseconds at this size.
+ * unanswered while a `while (true)` runs: a few milliseconds at this size.
  */
 const SLICE = 2000;
 
@@ -102,8 +102,8 @@ function breathe() {
  *
  * Nothing in here touches the DOM and nothing in here knows about a Worker.
  * It takes plain objects and returns plain objects, which is what makes the
- * same class runnable in a worker, in a test, and — if Phase 8's optional
- * bullet ever happens — over a socket to VS Code.
+ * same class runnable in a worker, in a test, and, if the optional VS Code
+ * adapter ever happens, over a socket.
  *
  * The rule the whole class is built to keep: **nothing live crosses this
  * boundary.** Every answer is structured-clonable. That constraint is what
@@ -146,7 +146,7 @@ export class Session {
    * Motion commands are the interesting case: they answer *immediately*, with
    * an acknowledgement rather than a result, and the result arrives later as
    * a `stopped` or `terminated` event. That is how DAP works and it is not an
-   * accident — a `continue` over an infinite loop has no result to wait for,
+   * accident. A `continue` over an infinite loop has no result to wait for,
    * and a client blocked waiting for one could never send the `pause` that
    * ends it.
    * @param {DapRequest} request
@@ -242,9 +242,8 @@ export class Session {
    *
    * Written in DAP's own capability names because they are the ones that
    * happen to be true here. `supportsStepBack` is the flag VS Code reads to
-   * decide whether to draw a reverse-step button at all — which is a fair
-   * summary of Phase 6: the feature is not "we added a button", it is "the
-   * runtime can now answer yes to this".
+   * decide whether to draw a reverse-step button at all. The button was never
+   * the hard part; being able to answer yes to this was.
    * @returns {object}
    */
   initialize() {
@@ -271,7 +270,7 @@ export class Session {
 
   /**
    * Load a program. Source that doesn't parse is a failed response, not a
-   * thrown error the far side has to reconstruct — the label is what the UI
+   * thrown error the far side has to reconstruct. The label is what the UI
    * puts in the status line.
    * @param {{source: string, backend?: string, breakpoints?: number[]}} args
    * @returns {object}
@@ -301,7 +300,7 @@ export class Session {
     const dbg = this.live;
     dbg.breakpoints = new Set(args.lines);
     // Every line is verifiable here because a breakpoint is a line number and
-    // nothing else — there is no "nearest executable line" to slide onto.
+    // nothing else. There is no "nearest executable line" to slide onto.
     return { breakpoints: args.lines.map((line) => ({ line, verified: true })) };
   }
 
@@ -361,8 +360,8 @@ export class Session {
         }
       }
     } catch (err) {
-      // Nothing in the debugger is supposed to throw — a Pip error becomes a
-      // status, not an exception — so reaching here means the adapter itself
+      // Nothing in the debugger is supposed to throw, since a Pip error becomes
+      // a status rather than an exception, so reaching here means the adapter
       // broke. Say so: `pump` runs unawaited, and an unhandled rejection in a
       // worker is a UI that silently stops responding.
       this.running = false;
@@ -505,7 +504,7 @@ export class Session {
    *
    * Once something has failed the stack reported is the one from the moment
    * it failed. The live stack has unwound to nothing by then, and a client
-   * shown that would draw an empty pane over an error — the same substitution
+   * shown that would draw an empty pane over an error. This is the substitution
    * a real adapter makes when it stops on an exception.
    * @returns {{stackFrames: {id: number, name: string, line: number}[], totalFrames: number}}
    */
@@ -526,7 +525,7 @@ export class Session {
   /**
    * The scope chain as references, not as contents.
    *
-   * The two-step — `scopes` then `variables` — is the part of DAP that looks
+   * The two-step, `scopes` then `variables`, is the part of DAP that looks
    * like overhead until you notice what it buys: a client draws the chain
    * from this, and pays for the bindings of the scopes it actually expands.
    * Here every scope is expanded, so both requests always happen; the shape
@@ -553,7 +552,7 @@ export class Session {
     const scope = this.refs.get(args.variablesReference);
     if (scope === undefined) throw new Error(`stale variablesReference ${args.variablesReference}`);
     // Every Pip value renders to one line and none of them can be expanded,
-    // so every variable's own reference is 0 — DAP's way of saying "leaf".
+    // so every variable's own reference is 0, DAP's way of saying "leaf".
     return { variables: scope.bindings.map((b) => ({ name: b.name, value: b.value, variablesReference: 0 })) };
   }
 
@@ -561,8 +560,8 @@ export class Session {
    * The instruction listing.
    *
    * DAP's real `disassemble` addresses memory and counts instructions either
-   * side of a reference. Pip has neither — a chunk is the unit, and the whole
-   * of one fits on a pane — so this keeps the name and the `{address,
+   * side of a reference. Pip has neither, since a chunk is the unit and the
+   * whole of one fits on a pane, so this keeps the name and the `{address,
    * instruction}` rows and drops the windowing. Null on the tree-walker,
    * which has no instructions to show.
    * @returns {{title: string, address: number, instructions: {address: number, instruction: string}[]}|null}

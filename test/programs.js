@@ -1,8 +1,8 @@
 // @ts-check
 
 /**
- * The corpus both backends are held to. Keeping the tree-walker alive past
- * Phase 5 is only worth it if something actually compares them, and this is
+ * The corpus both backends are held to. Keeping the tree-walker alive beside
+ * the VM is only worth it if something actually compares them, and this is
  * that something: one list of programs, run twice, with the two answers
  * asserted equal to each other *and* to what is written here.
  *

@@ -14,9 +14,9 @@ import { Journal, JOURNAL_LIMIT } from '../src/journal.js';
 
 /**
  * What the debugger needs to know about a pause point, whichever backend it
- * came from. Two very different things produce this — a node the tree-walker
- * is about to enter, an instruction the VM is about to run — and the UI is
- * built entirely on the shape rather than on either of them.
+ * came from. Two very different things produce it: a node the tree-walker is
+ * about to enter, or an instruction the VM is about to run. The UI is built
+ * entirely on the shape rather than on either of them.
  *
  * `env` is the live scope chain rather than a copy, and nothing outside the
  * debugger ever sees it. `Debugger.scopes()` renders it on the way out,
@@ -98,8 +98,8 @@ export class TreeBackend {
    * position: that lives in the JS call stack and a chain of suspended
    * generators, one per node being evaluated. Nothing can rewind a suspended
    * generator, and nothing can reconstruct one either. The driver's answer
-   * is to replay the program from the start instead — no journal, and
-   * trivially correct as long as nothing in the language is non-deterministic.
+   * is to replay the program from the start instead. No journal, and trivially
+   * correct as long as nothing in the language is non-deterministic.
    * @returns {null}
    */
   back() {
@@ -174,7 +174,7 @@ export class TreeBackend {
 /**
  * The bytecode VM as a backend.
  *
- * The contrast with the class above is the point of Phase 5: there is no
+ * The contrast with the class above is the point of the VM: there is no
  * bookkeeping in here. The call stack is read off the VM's own frame array,
  * and the failure already knows which instruction it happened at.
  */
@@ -201,10 +201,10 @@ export class VmBackend {
     this.failure = null;
     /**
      * The chunk and offset the instruction pane is looking at. Seeded with
-     * the entry chunk at zero so the listing is there before the first step
-     * — switching to this backend should show you the program, not a blank
-     * column — and left alone once execution ends, so the pane still shows
-     * where it stopped.
+     * the entry chunk at zero so the listing is there before the first step,
+     * because switching to this backend should show you the program rather than
+     * a blank column. It is left alone once execution ends, so the pane still
+     * shows where it stopped.
      * @type {{chunk: Chunk, pc: number}}
      */
     this.shown = { chunk: this.chunk, pc: 0 };
@@ -229,8 +229,8 @@ export class VmBackend {
   }
 
   /**
-   * Where this backend's values actually live, so anything reading them —
-   * the inspector, and in Phase 7b the heap view — can follow a handle.
+   * Where this backend's values actually live, so anything reading them (the
+   * inspector and the heap view) can follow a handle.
    * @returns {Heap}
    */
   get heap() {
@@ -262,9 +262,9 @@ export class VmBackend {
   /**
    * One instruction backwards: undo the write, then walk in again.
    *
-   * The generator suspended at the pause we are leaving is finished with —
-   * it holds a position we no longer want and there is no way to move it —
-   * so it goes, and a fresh one picks the machine up wherever the journal
+   * The generator suspended at the pause we are leaving is finished with: it
+   * holds a position we no longer want and there is no way to move it. So it
+   * goes, and a fresh one picks the machine up wherever the journal
    * left it. Nothing runs: the loop yields before it executes, so the first
    * `next` is the machine saying where it is.
    * @returns {Pause|null} null when the journal no longer reaches this far back

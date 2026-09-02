@@ -57,7 +57,7 @@ test('a handle to a reused slot is stale, not an alias for whatever moved in', (
   const h = heap();
   const first = /** @type {Handle} */ (h.write('first'));
   h.free(first);
-  // Standing in for the free list Phase 7b adds: the same address, handed out
+  // Standing in for the free list the collector keeps: the same address, handed out
   // again. Without the generation, `first` would now read "second".
   h.cells[first.addr] = { k: 'str', text: 'second' };
   h.gens[first.addr]++;

@@ -94,7 +94,7 @@ test('recursion is bounded by an array, not by the host call stack', () => {
   const source = 'fn down(n) { if (n == 0) { return 0 } return down(n - 1) } down(5000)';
   assert.equal(evaluate(source), 0);
   // The same program on the tree-walker, whose depth is a chain of suspended
-  // generators on the JS stack. This is the limit Phase 5 exists to remove.
+  // generators on the JS stack. This is the limit the VM exists to remove.
   assert.throws(() => runTree(parse(source), globals().child()), RangeError);
 });
 

@@ -13,8 +13,8 @@ import { PROGRAMS } from './programs.js';
 /** @typedef {{result: string, output: string[]}|{error: string, output: string[]}} Outcome */
 
 /**
- * Both backends mount a program the same way — in a child of the builtins,
- * with `print` pointed at a list — so the only thing that differs between
+ * Both backends mount a program the same way (in a child of the builtins,
+ * with `print` pointed at a list), so the only thing that differs between
  * these two functions is which one executes.
  * @param {string} source
  * @returns {Outcome}

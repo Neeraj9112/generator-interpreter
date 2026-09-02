@@ -25,7 +25,7 @@ function native(name, arity, call) {
  * stay in their own scope and an inspector can tell the two apart.
  *
  * `write` is a parameter because the output pane and a terminal are the same
- * builtin pointed at different sinks — the interpreter shouldn't know which
+ * builtin pointed at different sinks. The interpreter shouldn't know which
  * one it's talking to.
  * @param {{write?: (line: string) => void}} [io]
  * @returns {Env}

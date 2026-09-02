@@ -16,10 +16,10 @@ export { BLACK, COLOR_NAME, GREY, WHITE } from './heap.js';
  * What the three colours mean, and the whole of the invariant a mark phase
  * maintains:
  *
- * - white — not known to be reachable. When marking ends, white means garbage
+ * - white: not known to be reachable. When marking ends, white means garbage
  *   and the sweep is allowed to take it.
- * - grey — reached, but not yet looked *through*. The worklist.
- * - black — reached, and everything it points at is at least grey.
+ * - grey: reached, but not yet looked *through*. The worklist.
+ * - black: reached, and everything it points at is at least grey.
  *
  * The rule that makes it work is that no black cell ever points at a white
  * one. Marking ends when no grey cells are left, and at that moment every
@@ -60,11 +60,11 @@ export { BLACK, COLOR_NAME, GREY, WHITE } from './heap.js';
  *    right up until you press back, at which point a binding is restored to
  *    an address that has been swept and handed to something else.
  *
- * That last one is the price of Phase 6 being real: history is a root set. It
- * is also why a debugger's heap frees less than a script's — a thousand
- * instructions of undo keep a thousand instructions of garbage — and why the
- * garbage does eventually go, since entries fall off the front of the journal
- * as the program runs on.
+ * That last one is what step-back costs: history has to be a root set too. It
+ * is also why a debugger's heap frees less than a script's, since a thousand
+ * instructions of undo keep a thousand instructions of garbage. The garbage
+ * does eventually go, because entries fall off the front of the journal as the
+ * program runs on.
  * @param {Machine} machine
  * @param {boolean} [history] whether the journal counts. Always true for a
  *   real collection; the heap view passes false to work out which cells are
@@ -151,7 +151,7 @@ function* edges(cell) {
  *
  * Marking is iterative rather than recursive. A deep scope chain would put a
  * frame on the JS stack per link otherwise, and the whole argument for the VM
- * in Phase 5 was that the host's call stack should not be what bounds us.
+ * was that the host's call stack should not be what bounds us.
  * @param {Machine} machine
  * @returns {Generator<GcStep, GcResult, void>}
  */

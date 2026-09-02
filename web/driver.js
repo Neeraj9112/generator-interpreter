@@ -48,7 +48,7 @@ import { BACKENDS } from './backends.js';
 
 /**
  * How a value reads in the inspector, where telling `1` from `"1"` matters
- * more than looking tidy. `print` makes the opposite trade — see `format`.
+ * more than looking tidy. `print` makes the opposite trade, see `format`.
  * @param {Value} value
  * @returns {string}
  */
@@ -102,15 +102,15 @@ function lineStartsOf(source) {
 }
 
 /**
- * Owns the execution and nothing else — no DOM, so the stepping rules are
+ * Owns the execution and nothing else. No DOM, so the stepping rules are
  * testable under `node --test` rather than only by clicking. The UI reads
  * this and draws it; every decision about *where execution is* lives here.
  *
  * Which of the two backends is doing the executing is not one of those
  * decisions. This class asks for pause points and gets back the same shape
  * either way, so stepping, breakpoints, the ribbon and the stack pane are
- * written once. That is most of what Phase 5 changed up here: the debugger
- * turned out to need almost nothing from the tree-walker specifically.
+ * written once. That is most of what a second backend cost up here: the
+ * debugger turned out to need almost nothing from the tree-walker specifically.
  */
 export class Debugger {
   /**
@@ -296,8 +296,8 @@ export class Debugger {
    * A stepping rule, as something that can be picked up again.
    *
    * Every motion but a single step is "keep stepping while X", and X is
-   * usually measured against where the motion *began* — the line it started
-   * on, the frame it was standing in. Deciding that once and handing back a
+   * usually measured against where the motion *began*: the line it started on,
+   * the frame it was standing in. Deciding that once and handing back a
    * predicate is what lets `advance` stop halfway and be called again without
    * the rule quietly re-anchoring itself to wherever it got to.
    *
@@ -333,8 +333,8 @@ export class Debugger {
    * over a call that never returns is unbounded, and once the debugger is
    * running in a Worker the loop it is in is the loop that would have to
    * notice a `pause` arriving. Handing back `budget` lets the caller breathe
-   * — drain its message queue, decide whether it still wants this — and then
-   * ask for more of the same motion.
+   * (drain its message queue, decide whether it still wants this) and then ask
+   * for more of the same motion.
    * @param {() => boolean} more
    * @param {number} [budget]
    * @returns {'ended'|'stopped'|'budget'} why it came back
@@ -370,7 +370,7 @@ export class Debugger {
   /**
    * How the backend goes backwards: by undoing a journal, or by running the
    * program again. The difference is a bill rather than a behaviour, but it
-   * is one worth showing — `reach` only means something next to it.
+   * is one worth showing, because `reach` only means something next to it.
    * @returns {'journal'|'replay'}
    */
   get rewindsBy() {
@@ -388,7 +388,7 @@ export class Debugger {
    * A finished or failed program steps back onto its last live pause rather
    * than one before it: that pause is where you were standing when you set
    * it running, and the instruction it announced is the one that ended
-   * things — which is the one you came back to look at.
+   * things, which is the one you came back to look at.
    * @returns {boolean} whether it moved
    */
   stepBack() {
@@ -420,16 +420,16 @@ export class Debugger {
    * Step-back for a backend that cannot be rewound: throw the run away and
    * do it again, stopping one step short of where it was.
    *
-   * No journal, and correct by construction — the second run is the first
+   * No journal, and correct by construction: the second run is the first
    * run. What it costs is everything: each step back re-executes the whole
    * program up to that point, and on the tree-walker each of those steps
-   * pays Phase 2's O(depth) `yield*` delegation. Fine at the scale a person
+   * pays the evaluator's O(depth) `yield*` delegation. Fine at the scale a person
    * clicks at, and the first thing checkpointing would fix.
    *
    * It is only correct at all because Pip is deterministic. There is no
-   * `rand`, no clock and no input, so a program has exactly one execution —
-   * the day one of those arrives, its results have to be recorded and
-   * replayed from the record.
+   * `rand`, no clock and no input, so a program has exactly one execution. The
+   * day one of those arrives, its results have to be recorded and replayed
+   * from the record.
    * @param {number} target
    * @returns {boolean} whether it landed on a pause
    */
@@ -446,7 +446,7 @@ export class Debugger {
    *
    * The backend put the *program* back; everything undone here is the
    * debugger's own accounting of it. The mark left on the ribbon by that step
-   * is what the accounting is read from — it is the record of what this
+   * is what the accounting is read from: it is the record of what this
    * moment looked like the first time through.
    * @param {Pause} pause
    */
@@ -473,7 +473,7 @@ export class Debugger {
 
   /**
    * A breakpoint fires on arriving at the line, not on every step taken
-   * while sitting on it — otherwise a run stops ten times inside one
+   * while sitting on it. Otherwise a run stops ten times inside one
    * expression and never gets anywhere.
    * @returns {boolean}
    */
@@ -622,7 +622,7 @@ export class Debugger {
       call: pause.call,
       // What the output pane looked like at this step. `print` writes to a
       // sink no backend has any way to take back, so stepping onto a mark
-      // truncates the pane to the length that mark remembers — which works
+      // truncates the pane to the length that mark remembers, which works
       // because the pane is a log, and a log only ever grows.
       output: this.output.length,
     });

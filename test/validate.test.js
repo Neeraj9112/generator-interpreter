@@ -23,7 +23,7 @@ test('break and continue outside a loop are rejected', () => {
 });
 
 test('the loop count does not survive a function boundary', () => {
-  // Nothing in this says which iteration the break would be leaving — the
+  // Nothing in this says which iteration the break would be leaving. The
   // function is a value that outlives the loop it was declared in.
   assert.throws(() => check('while (true) { fn f() { break } }'), { message: "'break' outside of a loop" });
   assert.throws(() => check('while (true) { fn f() { continue } }'), { message: "'continue' outside of a loop" });

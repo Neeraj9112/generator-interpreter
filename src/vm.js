@@ -31,7 +31,7 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
 /**
  * The whole of the VM's state, and deliberately nothing but data: two arrays,
  * a heap and a journal. The generator below keeps nothing of its own across a
- * yield, so the machine is separable from the generator walking it — hand
+ * yield, so the machine is separable from the generator walking it. Hand
  * the same machine to a fresh generator and execution carries on from
  * exactly where the last one was suspended.
  *
@@ -48,7 +48,7 @@ import { applyBinary, applyUnary, arityMessage, arityOf, describe, isCallable, i
 /**
  * The pause point, yielded *before* each instruction runs, so a debugger
  * showing this step is showing what is about to happen. `frames` and `stack`
- * are the live arrays rather than copies — same bargain the tree-walker
+ * are the live arrays rather than copies, the same bargain the tree-walker
  * makes with `env`, and for the same reason: a snapshot per instruction
  * would cost more than the program does.
  *
@@ -129,7 +129,7 @@ export function load(chunk, env, journal = NO_JOURNAL) {
  * There is no recursion in here at all: a call pushes a frame and the same
  * loop keeps going, which is why a Pip program can recurse thousands deep
  * without the JS stack noticing. That flatness is also what makes the loop
- * suspendable at *any* point — every bit of state a resume needs is in the
+ * suspendable at *any* point. Every bit of state a resume needs is in the
  * machine, not in the shape of the loop.
  *
  * Every write to that state goes through `journal`, which either keeps what
@@ -194,7 +194,7 @@ export function* execute(machine) {
       }
 
       case OP.DEFINE:
-        // Assignment and declaration both leave their value on the stack —
+        // Assignment and declaration both leave their value on the stack:
         // `let x = 1` is a statement whose value is 1, same as the tree-walker.
         journal.bind(env, String(constants[code[pc + 1]]), stack[stack.length - 1]);
         frame.pc += 2;
@@ -262,7 +262,7 @@ export function* execute(machine) {
           // Whatever a native does beyond the stack is outside the journal's
           // reach: `print` writes to a sink the VM has never heard of. Putting
           // that back is the sink owner's problem, which is the argument for
-          // an append-only one — undoing it is then a truncation.
+          // an append-only one, since undoing it is then a truncation.
           // A builtin is plain JS and knows nothing about the heap, so its
           // arguments are read on the way in and its answer written on the
           // way out. That boundary is the whole of what a builtin has to be
@@ -281,7 +281,7 @@ export function* execute(machine) {
 
         // The call's scope hangs off the env the function was *defined* in,
         // never off the caller's. One line, and it is the whole of lexical
-        // scope — the compiler had no part in it.
+        // scope, and the compiler had no part in it.
         //
         // Its bindings go in unjournalled: this instruction created the scope,
         // and undoing the frame push puts it beyond reach again, so there is

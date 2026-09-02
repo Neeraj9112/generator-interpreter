@@ -31,7 +31,7 @@ print(a())
  *
  * Going back is two moves, not one: undo the journal, then throw away the
  * generator and start another over the same machine. The second half is the
- * part that only works because the machine holds the position — a suspended
+ * part that only works because the machine holds the position. A suspended
  * generator has no seek.
  * @param {string} source
  * @param {Journal} [journal]
@@ -74,7 +74,7 @@ function walk(source, journal = new Journal(1000)) {
 /**
  * Everything about a machine that a program could tell had changed. Values
  * go in as text so a mismatch reads as one, and the scope chains come out
- * separately below to be compared by identity — restoring a variable to the
+ * separately below to be compared by identity, because restoring a variable to the
  * right value in the wrong scope is exactly the bug this is watching for.
  * @param {Machine} machine
  */
@@ -231,7 +231,7 @@ test('what a native did to the world is not the journal to undo', () => {
 
   // Stepping back over the call puts the stack back but not the line that
   // was printed: the journal never saw the sink. Whoever owns an append-only
-  // log owns putting it back, and for a log that is a truncation — which is
+  // log owns putting it back, and for a log that is a truncation, which is
   // what the debugger does with its output pane.
   while (walker.back() !== null) {
     // all the way to the start

@@ -46,8 +46,8 @@ function forward(dbg, count) {
 
 // Both backends step back, by mechanisms that have nothing in common: the VM
 // undoes a journal, and the tree-walker runs the program again from the top.
-// Everything below is written against the debugger, which is the point —
-// what a user gets is the same either way, and only the bill differs.
+// Everything below is written against the debugger, which is the point: what
+// a user gets is the same either way, and only the bill differs.
 const BACKENDS = ['tree', 'vm'];
 
 for (const backend of BACKENDS) {
@@ -151,7 +151,7 @@ test('the two backends pay for step-back differently, and say so', () => {
   assert.equal(vm.backend, machine, 'the VM steps back in place, on the machine it was already running');
 
   // The tree-walker keeps no journal, and stepping back is a fresh run of
-  // the whole program — a new backend object, where the VM kept its own.
+  // the whole program, with a new backend object where the VM kept its own.
   const tree = new Debugger(COUNTER, { backend: 'tree' });
   tree.run();
   assert.equal(tree.reach, 0);

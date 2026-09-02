@@ -7,16 +7,16 @@ import { Handle } from './heap.js';
 /** @typedef {import('./compile.js').Chunk} Chunk */
 
 /**
- * A function the tree-walker calls: parameters, an AST body, and — the part
- * that matters — the env it was *defined* in. Holding that reference is what
- * a closure is.
+ * A function the tree-walker calls: parameters, an AST body, and the env it
+ * was *defined* in. That last one is what matters: holding that reference is
+ * what a closure is.
  * @typedef {{type: 'function', name: string, params: Identifier[], body: Block, env: Env}} FnValue
  */
 
 /**
  * The same idea for the VM: a compiled chunk instead of an AST body, and the
  * captured scope as a heap handle rather than a JS reference. That one field
- * is the whole of the difference the heap makes to a closure — it still
+ * is the whole of the difference the heap makes to a closure. It still
  * captures the scope it was defined in, and closures still behave the same on
  * both backends without either one knowing the other exists.
  * @typedef {{type: 'closure', name: string, proto: Chunk, env: Handle}} Closure
@@ -25,7 +25,7 @@ import { Handle } from './heap.js';
 /**
  * A function the interpreter doesn't evaluate: `call` is plain JS, so it runs
  * to completion inside one step rather than yielding its way through a body.
- * There is nothing to step into, which is the right shape for a builtin —
+ * There is nothing to step into, which is the right shape for a builtin:
  * `print` has no Pip source to show a debugger.
  * @typedef {{type: 'native', name: string, arity: number, call: (args: Value[]) => Value}} NativeFn
  */
@@ -47,7 +47,7 @@ import { Handle } from './heap.js';
 
 /**
  * What an operation produces: a value, or the message explaining why there
- * isn't one. Deliberately neither a throw nor a `Signal` — this module sits
+ * isn't one. Deliberately neither a throw nor a `Signal`, because this sits
  * below both backends and knows about neither, so each one wraps a failure
  * in whatever its own unwinding mechanism is.
  * @typedef {{ok: true, value: Value}|{ok: false, message: string}} OpResult
@@ -70,9 +70,9 @@ function err(message) {
 }
 
 /**
- * Falsy is exactly `false`, `0`, `""` and nothing — every other value,
- * including every nonzero number, every non-empty string and every function,
- * is truthy.
+ * Falsy is exactly `false`, `0`, `""` and nothing. Every other value is
+ * truthy, including every nonzero number, every non-empty string and every
+ * function.
  * @param {Value} value
  * @returns {boolean}
  */
@@ -153,7 +153,7 @@ export function applyUnary(operator, operand) {
 
 /**
  * Every binary operator except `&&` and `||`, which short-circuit and so
- * never hold both operands at once — those two are control flow, and each
+ * never hold both operands at once. Those two are control flow, and each
  * backend expresses control flow in its own terms.
  * @param {string} operator
  * @param {Value} left
@@ -186,7 +186,7 @@ export function applyBinary(operator, left, right) {
 /**
  * The one overloaded operator: concatenation if either side is a string,
  * addition otherwise. Only numbers, strings and booleans splice into a
- * string — a function or nothing on either side is an error rather than an
+ * string. A function or nothing on either side is an error rather than an
  * "[object Object]" nobody asked for.
  * @param {Value} left
  * @param {Value} right

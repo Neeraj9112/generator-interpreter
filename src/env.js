@@ -5,7 +5,7 @@
 /**
  * A scope: its own bindings, plus a link to the scope enclosing it. A linked
  * list rather than one flattened object, because that is what lexical scope
- * actually is — lookup walks outward, so an inner `let` shadows an outer one
+ * actually is: lookup walks outward, so an inner `let` shadows an outer one
  * for exactly as long as the inner scope is alive, and holding the head of a
  * chain keeps every scope above it reachable. That last part is the whole
  * mechanism behind closures.
@@ -44,8 +44,8 @@ export class Env {
   }
 
   /**
-   * Bindings of this scope alone, ignoring the chain — shadowing an outer
-   * name is legal, rebinding one already declared here is not.
+   * Bindings of this scope alone, ignoring the chain. Shadowing an outer name
+   * is legal, rebinding one already declared here is not.
    * @param {string} name
    * @returns {boolean}
    */
@@ -63,8 +63,8 @@ export class Env {
   }
 
   /**
-   * Take a binding back out of this scope. No Pip program can reach this —
-   * the language has no way to unbind a name — and nothing but stepping
+   * Take a binding back out of this scope. No Pip program can reach this (the
+   * language has no way to unbind a name), and nothing but stepping
    * backwards has any business calling it: undoing a declaration means the
    * scope has to stop knowing the name, not merely forget its value.
    * @param {string} name
@@ -75,7 +75,7 @@ export class Env {
 
   /**
    * Read a name from wherever the chain binds it. The caller has to have
-   * checked `resolve` first — an unbound name and one bound to nothing are
+   * checked `resolve` first, because an unbound name and one bound to nothing are
    * both `undefined` here, and only the evaluator can tell them apart.
    * @param {string} name
    * @returns {Value}
