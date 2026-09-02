@@ -221,7 +221,7 @@ test('stepping back over a collection restores the machine rather than crashing'
 });
 
 test('a churn loop allocating 100k objects holds steady live-set size', () => {
-  // Phase 7's "Done when". Every turn of the loop builds a string and a scope
+  // The collector's headline claim. Every turn of the loop builds a string and a scope
   // and drops the previous ones, so the program allocates 100k times over and
   // is reachable from about twenty cells throughout.
   const source = 'let i = 0 let last = "" while (i < 100000) { let s = "x" + i last = s i = i + 1 } last';

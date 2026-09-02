@@ -146,7 +146,7 @@ button:disabled .key { color: inherit; }
    carries two different meanings depending on what is happening: at rest it
    is what the cell holds, and during a collection the mark phase repaints it
    grey then black as it reaches it. Watching that spread out from the roots
-   is the whole of Phase 7 in one picture, which is why the collector is a
+   is the whole of the collector in one picture, which is why it is a
    generator rather than a function that simply returns having done it. */
 
 .heap {

@@ -102,8 +102,8 @@ function breathe() {
  *
  * Nothing in here touches the DOM and nothing in here knows about a Worker.
  * It takes plain objects and returns plain objects, which is what makes the
- * same class runnable in a worker, in a test, and, if Phase 8's optional
- * bullet ever happens, over a socket to VS Code.
+ * same class runnable in a worker, in a test, and, if the optional VS Code
+ * adapter ever happens, over a socket.
  *
  * The rule the whole class is built to keep: **nothing live crosses this
  * boundary.** Every answer is structured-clonable. That constraint is what
@@ -242,9 +242,8 @@ export class Session {
    *
    * Written in DAP's own capability names because they are the ones that
    * happen to be true here. `supportsStepBack` is the flag VS Code reads to
-   * decide whether to draw a reverse-step button at all, which is a fair
-   * summary of Phase 6: the feature is not "we added a button", it is "the
-   * runtime can now answer yes to this".
+   * decide whether to draw a reverse-step button at all. The button was never
+   * the hard part; being able to answer yes to this was.
    * @returns {object}
    */
   initialize() {

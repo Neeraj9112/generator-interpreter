@@ -109,8 +109,8 @@ function lineStartsOf(source) {
  * Which of the two backends is doing the executing is not one of those
  * decisions. This class asks for pause points and gets back the same shape
  * either way, so stepping, breakpoints, the ribbon and the stack pane are
- * written once. That is most of what Phase 5 changed up here: the debugger
- * turned out to need almost nothing from the tree-walker specifically.
+ * written once. That is most of what a second backend cost up here: the
+ * debugger turned out to need almost nothing from the tree-walker specifically.
  */
 export class Debugger {
   /**
@@ -423,7 +423,7 @@ export class Debugger {
    * No journal, and correct by construction: the second run is the first
    * run. What it costs is everything: each step back re-executes the whole
    * program up to that point, and on the tree-walker each of those steps
-   * pays Phase 2's O(depth) `yield*` delegation. Fine at the scale a person
+   * pays the evaluator's O(depth) `yield*` delegation. Fine at the scale a person
    * clicks at, and the first thing checkpointing would fix.
    *
    * It is only correct at all because Pip is deterministic. There is no

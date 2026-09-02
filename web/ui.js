@@ -355,7 +355,7 @@ function renderScopes() {
  * ones held only by the journal are called out, because "you can still step
  * back to this" is the reason most of them are still here. Mid-collection,
  * the squares turn grey and black as the mark phase reaches them, which is
- * the whole of Phase 7 in one picture.
+ * the whole of the collector in one picture.
  */
 function renderHeap() {
   const view = snap === null ? null : snap.heap;

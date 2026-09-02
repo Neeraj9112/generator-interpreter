@@ -60,7 +60,7 @@ export { BLACK, COLOR_NAME, GREY, WHITE } from './heap.js';
  *    right up until you press back, at which point a binding is restored to
  *    an address that has been swept and handed to something else.
  *
- * That last one is the price of Phase 6 being real: history is a root set. It
+ * That last one is what step-back costs: history has to be a root set too. It
  * is also why a debugger's heap frees less than a script's, since a thousand
  * instructions of undo keep a thousand instructions of garbage. The garbage
  * does eventually go, because entries fall off the front of the journal as the
@@ -151,7 +151,7 @@ function* edges(cell) {
  *
  * Marking is iterative rather than recursive. A deep scope chain would put a
  * frame on the JS stack per link otherwise, and the whole argument for the VM
- * in Phase 5 was that the host's call stack should not be what bounds us.
+ * was that the host's call stack should not be what bounds us.
  * @param {Machine} machine
  * @returns {Generator<GcStep, GcResult, void>}
  */

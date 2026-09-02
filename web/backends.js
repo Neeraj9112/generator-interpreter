@@ -174,7 +174,7 @@ export class TreeBackend {
 /**
  * The bytecode VM as a backend.
  *
- * The contrast with the class above is the point of Phase 5: there is no
+ * The contrast with the class above is the point of the VM: there is no
  * bookkeeping in here. The call stack is read off the VM's own frame array,
  * and the failure already knows which instruction it happened at.
  */
@@ -230,7 +230,7 @@ export class VmBackend {
 
   /**
    * Where this backend's values actually live, so anything reading them (the
-   * inspector, and in Phase 7b the heap view) can follow a handle.
+   * inspector and the heap view) can follow a handle.
    * @returns {Heap}
    */
   get heap() {

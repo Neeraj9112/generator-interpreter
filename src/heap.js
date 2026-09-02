@@ -96,8 +96,8 @@ export class HeapError extends Error {
 }
 
 /**
- * The VM's own storage, and, once Phase 7b lands a collector, the thing it can
- * reclaim from. An array of slots with a generation counter each.
+ * The VM's own storage, and the thing the collector reclaims from. An array of
+ * slots with a generation counter each.
  *
  * The point of moving off JS references is not to be faster. It is that a
  * reference you cannot see is a reference you cannot trace: with values
@@ -157,8 +157,8 @@ export class Heap {
     this.freeList = [];
     /**
      * The tricolor mark, by address, using the constants in `gc.js`. Kept on
-     * the heap rather than inside the collector because the point of Phase 7
-     * is to watch a collection happen: the pane reads these between steps.
+     * the heap rather than inside the collector because the point is to watch
+     * a collection happen: the pane reads these between steps.
      * @type {number[]}
      */
     this.colors = [];
