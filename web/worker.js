@@ -16,8 +16,8 @@ import { Session } from './protocol.js';
 /**
  * A worker's global scope is a port: it posts to the page and receives from
  * it. Typed as one rather than as a `DedicatedWorkerGlobalScope`, because the
- * checker is configured for the DOM and the two libraries cannot both be on —
- * and a port is all this file uses of it anyway.
+ * checker is configured for the DOM and the two libraries cannot both be on.
+ * A port is all this file uses of it anyway.
  * @type {import('./client.js').Port}
  */
 const scope = /** @type {any} */ (self);

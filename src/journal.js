@@ -8,7 +8,7 @@
 
 /**
  * One write, remembered by what it overwrote. Nothing here says what the
- * instruction *did* — a journal that recorded intentions would have to know
+ * instruction *did*. A journal that recorded intentions would have to know
  * how to invert each one, and inverting `pop` needs the value that came off,
  * which the instruction no longer has. Recording the previous state instead
  * makes undo the same three lines for every opcode there will ever be.
@@ -33,8 +33,8 @@
 export const JOURNAL_LIMIT = 1000;
 
 /**
- * The VM's write-ahead log, and — the part that makes it work at all — the
- * only thing that writes to the machine. Every mutation in the loop goes
+ * The VM's write-ahead log, and the part that makes it work at all: the only
+ * thing that writes to the machine. Every mutation in the loop goes
  * through a method here, so "did we record that one?" is not a question
  * anybody has to keep answering as opcodes get added: an unrecorded write
  * would have to be an unwritten write.
@@ -115,7 +115,7 @@ export class Journal {
   }
 
   /**
-   * Drop everything above `length` — how a call clears its arguments and how
+   * Drop everything above `length`, which is how a call clears its arguments and how
    * a return unwinds to where the call began.
    * @param {Value[]} stack
    * @param {number} length
@@ -156,7 +156,7 @@ export class Journal {
 
   /**
    * Bind a name, whether that is a declaration or an assignment. The VM has
-   * resolved which scope owns it by the time it gets here — undo has to put
+   * resolved which scope owns it by the time it gets here. Undo has to put
    * the value back in the same scope the write took it from, and one step
    * later the chain may no longer lead there.
    * @param {Env} env
@@ -171,7 +171,7 @@ export class Journal {
   /**
    * A cell the running program just allocated. Undoing the instruction takes
    * the cell back, so stepping backwards and forwards over a loop doesn't
-   * leave the heap a little larger each time round — which would make the
+   * leave the heap a little larger each time round, which would make the
    * one number the collector is judged on depend on how much you fidgeted.
    *
    * Only allocations an instruction made are recorded. A constant, a builtin
@@ -192,7 +192,7 @@ export class Journal {
    * Put the machine back the way it was one instruction ago.
    *
    * Entries are applied in reverse, which is the only ordering that works
-   * when an instruction wrote to the same place twice — a return pops the
+   * when an instruction wrote to the same place twice. A return pops the
    * stack, truncates it and pushes to it, and undoing those in the order
    * they happened would leave the value in the wrong slot.
    *

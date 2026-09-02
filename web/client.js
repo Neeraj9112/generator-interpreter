@@ -13,7 +13,7 @@
  * A `Worker` has exactly this shape, and so does `self` inside one, which is
  * why neither side of this phase mentions workers by name. A test can supply
  * a pair of these wired to each other and exercise the same code the page
- * runs — the protocol is the seam, and a seam you can only reach through a
+ * runs. The protocol is the seam, and a seam you can only reach through a
  * real thread is a seam you will not test.
  *
  * The handler's parameter is `any` rather than `{data: unknown}` so that a
@@ -87,7 +87,7 @@ export class DebugClient {
     }
     const error = new Error(message.message ?? `${message.command} failed`);
     // The label rides in the body because the class does not survive the
-    // crossing — see AdapterError.
+    // crossing. See AdapterError.
     error.name = message.body?.label ?? 'failed';
     waiting.reject(error);
   }
@@ -134,7 +134,7 @@ export class DebugClient {
    * The scope chain costs two rounds rather than one: `scopes` names the
    * scopes and hands back a reference for each, and `variables` redeems one
    * reference for its bindings. That is DAP's shape and it is kept even
-   * though this page always redeems all of them — the references go stale on
+   * though this page always redeems all of them. The references go stale on
    * the next stop, which is the part worth having modelled.
    * @param {{traceCount?: number}} [options]
    * @returns {Promise<Snapshot>}

@@ -52,7 +52,7 @@ test('a step opens at every pause point and nowhere else', () => {
   const { journal, pauses } = run('let n = 0\nwhile (n < 3) { n = n + 1 }');
   // The marks and the pause points are the same sequence seen from two
   // sides: one instruction announced, then that instruction recorded. A
-  // backwards jump is the case that makes this worth asserting — the pc has
+  // backwards jump is the case that makes this worth asserting: the pc has
   // to be where execution *was*, not the offset it moved by.
   assert.deepEqual(journal.steps.map((step) => step[0].k === 'pc' && step[0].pc), pauses);
 });
@@ -91,7 +91,7 @@ function outcome(result) {
 }
 
 // Recording has to be invisible to the program being recorded, so the corpus
-// gets run twice and the two answers compared — the same bargain the two
+// gets run twice and the two answers compared, the same bargain the two
 // backends are held to in backends.test.js.
 for (const program of PROGRAMS) {
   test(`recording changes nothing: ${program.name}`, () => {

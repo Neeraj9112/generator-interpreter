@@ -16,7 +16,7 @@ import { validate } from './validate.js';
  * 256 entries and a jump at 255 slots, and every loop needs a *signed* jump
  * anyway. Byte-packing buys density, and density is not what this VM is for.
  *
- * Operands are inline — an instruction occupies one slot for the opcode plus
+ * Operands are inline. An instruction occupies one slot for the opcode plus
  * one for its operand if it takes one, so `pc` steps by 1 or 2. `META` below
  * is what says which.
  * @enum {number}
@@ -104,7 +104,7 @@ export const META = {
   [OP.HALT]: { name: 'HALT', operands: 0 },
 };
 
-/** Source operator text per binary opcode — the VM needs it for messages. @type {Record<number, string>} */
+/** Source operator text per binary opcode, which the VM needs for messages. @type {Record<number, string>} */
 export const BINARY_OP = {
   [OP.ADD]: '+',
   [OP.SUB]: '-',
@@ -136,8 +136,8 @@ const OPCODE_FOR_OPERATOR = {
 
 /**
  * One compiled function: its instructions, the constants they index, the
- * functions declared inside it, and — the part that keeps the debugger
- * alive — a span per slot of `code`, so any `pc` maps straight back to
+ * functions declared inside it, and the part that keeps the debugger alive:
+ * a span per slot of `code`, so any `pc` maps straight back to
  * source. `spans` is parallel to `code` rather than sparse, which costs a
  * few array entries and saves every lookup from having to find the opcode
  * an operand belongs to.
@@ -174,7 +174,7 @@ export class CompileError extends Error {
 }
 
 /**
- * Compiles one function body — or the whole program, which is just the
+ * Compiles one function body, or the whole program, which is just the
  * outermost one. A nested `fn` gets its own instance, so `code`, the pool
  * and the scope stack are never shared across a function boundary.
  */
@@ -261,7 +261,7 @@ class ChunkCompiler {
 
   /**
    * Offsets are relative to the instruction *after* the jump, which is where
-   * `pc` sits by the time the VM applies them — and signed, so the same
+   * `pc` sits by the time the VM applies them. They are signed, so the same
    * instruction serves a loop's jump back to the top.
    * @param {number} hole
    */
@@ -345,7 +345,7 @@ class ChunkCompiler {
 
   /**
    * Both arms have to leave a value, because whichever one runs is the
-   * statement's value — so a missing `else` is compiled as one that produces
+   * statement's value, so a missing `else` is compiled as one that produces
    * nothing rather than as no arm at all.
    * @param {IfStatement} node
    */
@@ -364,7 +364,7 @@ class ChunkCompiler {
   /**
    * A loop's value is always nothing, so the body's value is popped on every
    * pass and the exit pushes one afterwards. `break` and `continue` are
-   * plain jumps here — there is no sentinel to propagate, because the
+   * plain jumps here. There is no sentinel to propagate, because the
    * compiler already knows where the loop ends.
    * @param {WhileStatement} node
    */
@@ -469,7 +469,7 @@ class ChunkCompiler {
 
 /**
  * A function's parameters live in the scope the *call* creates, and the body
- * block opens one more inside it — the same two scopes the tree-walker
+ * block opens one more inside it: the same two scopes the tree-walker
  * pushes, so a `let` shadowing a parameter is legal on both backends.
  *
  * Falling off the end of a body produces nothing, which is why the tail is
@@ -492,7 +492,7 @@ function compileFunction(node) {
  */
 export function compile(program) {
   // Both backends run this first, so the two of them reject exactly the same
-  // programs — see `validate.js` for why that has to happen before either.
+  // programs. See `validate.js` for why that has to happen before either.
   validate(program);
   const main = new ChunkCompiler('<program>', []);
   main.statements(program.body, program.span);
@@ -574,7 +574,7 @@ export function formatLine(line) {
 }
 
 /**
- * The whole program, one chunk after another — the entry chunk first, then
+ * The whole program, one chunk after another: the entry chunk first, then
  * every function reachable from it, depth first.
  * @param {Chunk} chunk
  * @returns {string}

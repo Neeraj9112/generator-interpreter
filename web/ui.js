@@ -58,7 +58,7 @@ const buttons = {
  *
  * Everything below this line asks it questions and draws the answers. Nothing
  * below this line can reach an `Env`, a `Heap` or a suspended generator, and
- * that is not a restriction the page works around — it is the phase. A pane
+ * that is not a restriction the page works around. It is the design. A pane
  * that used to read the interpreter's memory now sends `scopes` and waits.
  */
 const client = new DebugClient(new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }));
@@ -86,7 +86,7 @@ let ribbonView = null;
 /**
  * Which refresh is the current one.
  *
- * Answers arrive out of order once asking is asynchronous — a `stopped` event
+ * Answers arrive out of order once asking is asynchronous. A `stopped` event
  * and a click can both start one, and the slower is not always the older.
  * Only the newest is allowed to paint.
  */
@@ -233,8 +233,8 @@ function renderSource() {
  * The yield stream, drawn as a silhouette of nesting depth over time. Every
  * step is one column: it rises with each `enter` and falls with each `exit`,
  * so a subtree is an arch and a loop is a row of identical teeth. This is the
- * one view that shows what the project is — execution as a sequence of pause
- * points you can walk — rather than one instant of it.
+ * one view that shows what the project is: execution as a sequence of pause
+ * points you can walk, rather than one instant of it.
  *
  * Canvas rather than elements because a run is thousands of columns wide and
  * each is a few pixels; there is nothing here worth a DOM node.
@@ -306,8 +306,8 @@ function renderRibbon() {
   const dropped = snap.trace.dropped > 0 ? `, ${snap.trace.dropped} dropped` : '';
   // What stepping back will cost from here, which is the one thing about it
   // a user cannot see for themselves: the VM undoes a bounded journal, and
-  // everything past its edge — and the whole of the tree-walker — is a
-  // replay of the program from the top.
+  // everything past its edge (and the whole of the tree-walker) is a replay
+  // of the program from the top.
   const back = state.rewindsBy === 'journal' ? `, ${state.reach} undoable` : ', step back replays';
   const steps = state.stepCount === 1 ? '1 step' : `${state.stepCount} steps`;
   ui.ribbonCount.textContent = `${steps}, depth ${state.depth}${dropped}${back}`;
@@ -351,7 +351,7 @@ function renderScopes() {
  * The heap as a grid of slots, one square each.
  *
  * Colour says two different things depending on whether a collection is
- * running. Idle, a square is its kind — string, function, scope — and the
+ * running. Idle, a square is its kind (string, function, scope) and the
  * ones held only by the journal are called out, because "you can still step
  * back to this" is the reason most of them are still here. Mid-collection,
  * the squares turn grey and black as the mark phase reaches them, which is
@@ -384,7 +384,7 @@ function renderHeap() {
 /**
  * The call stack, drawn in the order `stackTrace` sends it: innermost first,
  * bottoming out at the program itself. Once something has failed the adapter
- * substitutes the stack from the moment it failed — the live one has already
+ * substitutes the stack from the moment it failed. The live one has already
  * unwound to nothing, and showing that is the same as showing nothing.
  */
 function renderStack() {
@@ -407,7 +407,7 @@ function renderStack() {
 /**
  * The instruction listing, on a backend that has one. The tree-walker has no
  * instructions, so the pane and its column go away rather than sitting there
- * empty — the layout says which backend is running before the switch does.
+ * empty. The layout says which backend is running before the switch does.
  */
 function renderCode() {
   const code = snap === null ? null : snap.code;
@@ -584,8 +584,8 @@ async function send(command, args) {
   try {
     await client.request(command, args);
   } catch (err) {
-    // A refused request — a motion while one is already running, a stale
-    // reference — is not worth a dialog. The redraw below says what the
+    // A refused request (a motion while one is already running, a stale
+    // reference) is not worth a dialog. The redraw below says what the
     // adapter actually thinks is going on, which is the useful answer.
     console.warn(`${command}:`, err);
   }

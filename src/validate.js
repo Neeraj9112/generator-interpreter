@@ -9,8 +9,8 @@
 
 /**
  * A program that parses but doesn't mean anything: `break` with no loop
- * around it, a name declared twice in one scope. Neither is a syntax error —
- * the parser is right to accept them — and neither depends on what any value
+ * around it, a name declared twice in one scope. Neither is a syntax error
+ * (the parser is right to accept them), and neither depends on what any value
  * turns out to be, so both can be settled before the program runs.
  */
 export class SemanticError extends Error {
@@ -31,7 +31,7 @@ export class SemanticError extends Error {
  *
  * This exists because the two backends would otherwise disagree about *when*
  * these are errors. `break` compiles to a jump, so the compiler has to know
- * which loop it leaves before the program starts — it cannot defer. The
+ * which loop it leaves before the program starts. It cannot defer. The
  * tree-walker can, and used to: it raised `break` outside a loop only if
  * execution reached it, which made `if (false) { break }` legal on one
  * backend and rejected on the other. Checking up front for both settles it
@@ -41,7 +41,7 @@ export class SemanticError extends Error {
 class Validator {
   constructor() {
     /**
-     * Names bound per scope, innermost last. Declarations only — reads stay
+     * Names bound per scope, innermost last. Declarations only. Reads stay
      * dynamic, resolved against the live env chain while the program runs.
      * @type {Set<string>[]}
      */
@@ -115,7 +115,7 @@ class Validator {
 
   /**
    * A function body is its own world. The loop count resets to zero, because
-   * a loop *around the declaration* does not enclose the body — nothing in
+   * a loop *around the declaration* does not enclose the body. Nothing in
    * `while (x) { fn f() { break } }` says which iteration that `break` would
    * be leaving, and the tree-walker already treated it as an escape. The
    * scope stack resets to the parameters for the same reason: the body can

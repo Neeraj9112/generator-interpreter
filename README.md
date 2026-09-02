@@ -71,9 +71,8 @@ is to not return anything.
 
 ## Truthiness
 
-Falsy is exactly `false`, `0`, `""`, and nothing. Every other value —
-including every nonzero number, every non-empty string, and every function —
-is truthy.
+Falsy is exactly `false`, `0`, `""`, and nothing. Everything else is truthy,
+including every nonzero number, every non-empty string, and every function.
 
 ## Operators
 
@@ -81,12 +80,12 @@ is truthy.
   `"x" + 1` is `"x1"`; `1 + "x"` is `"1x"`. Only numbers, strings and booleans
   splice into a string; a function or nothing on either side is an error.
 - `- * / %` require both sides to be numbers.
-- `== !=` are strict — no coercion. `1 == "1"` is `false`, and functions
+- `== !=` are strict, with no coercion. `1 == "1"` is `false`, and functions
   compare by identity.
 - `< <= > >=` compare two numbers or two strings (by UTF-16 code unit); mixing
   types, or ordering a boolean, is a runtime `EvalError`.
 - `&& ||` short-circuit and return whichever operand decided the result
-  (not necessarily a boolean) — the untaken side is never evaluated, so it
+  (not necessarily a boolean). The untaken side is never evaluated, so it
   never yields its enter/exit steps either.
 - Unary `!` returns the boolean negation of truthiness; unary `-` requires a
   number.
@@ -270,10 +269,9 @@ them by address. The tree-walker keeps plain JS values and lets JS collect
 them, which is most of why running the same program on both is worth doing:
 one backend has a heap you can look at and the other has one you cannot.
 
-That is the whole argument for the change. A JS reference is invisible to
-anything but JS, so "what is still reachable" is not a question the
-tree-walker can be asked at all. Once every edge between two objects is an
-address stored in a cell, the question is a walk.
+A JS reference is invisible to anything but JS, so "what is still reachable"
+is not a question the tree-walker can be asked at all. Once every edge between
+two objects is an address stored in a cell, the question is a walk.
 
 Values are read at the point of use and written at the point of storage, so
 the operator code never sees an address and means exactly what it meant
@@ -305,14 +303,14 @@ last one, because a collection costs what the live set costs.
 
 ## Watching it collect
 
-The journal is a root, and that is not an implementation detail.
+The journal is a root, and that changes what a collection can free.
 
 A value the program has overwritten is unreachable from the machine and still
 needed, because stepping back has to be able to put it back. Collect without
 counting the journal and the heap stays correct right up until you press
 `back`, at which point a binding is restored to an address that has been swept
-and handed to something else. History is a root set, and that is the price of
-step-back being real rather than a demo.
+and handed to something else. So history has to be a root set too, and that is
+what step-back costs.
 
 So a debugger frees far less than a script does, and the pane says how much
 less. One square per slot in address order, so the grid is the array.
@@ -331,9 +329,10 @@ Nothing is recording history there, so the garbage goes as soon as it is
 made.
 
 The journal being a root is also why the grid above greys all at once rather
-than spreading outward from a few roots. In a debugger nearly every cell *is* a root. What you can
-watch after that is the black creeping right to left as the worklist empties,
-one cell per click, with the cell being looked through outlined.
+than spreading outward from a few roots. In a debugger nearly every cell *is*
+a root. What you can watch after that is the black creeping right to left as
+the worklist empties, one cell per click, with the cell being looked through
+outlined.
 
 `collect` yields between cells, so the same walk the VM drains between
 instructions is one the page can step. `next` takes a single cell and `finish`
@@ -362,12 +361,12 @@ When something fails, the call-stack pane freezes the stack as it stood at the
 moment of failure. The live stack has already unwound to nothing by the time
 the program stops, so drawing that one instead would leave the pane empty.
 
-The two stack panes read differently, and that is not a bug. The tree-walker
-pushes a frame when it enters a call expression, before the callee has been
-evaluated, so it can only name the frame after the source text that called it,
-and it counts `print` as a frame. The VM reads its own frame array, which holds
-the function actually running and never a builtin. A debugger can only tell you
-what its runtime can be asked.
+The two stack panes read differently on purpose. The tree-walker pushes a
+frame when it enters a call expression, before the callee has been evaluated,
+so it can only name the frame after the source text that called it, and it
+counts `print` as a frame. The VM reads its own frame array, which holds the
+function actually running and never a builtin. Each pane reports what its own
+runtime can be asked.
 
 ## Off the main thread
 
@@ -382,11 +381,11 @@ that used to read the interpreter's memory now asks a question and waits.
 The questions are DAP's, the protocol VS Code speaks to every debugger it
 drives: `setBreakpoints`, `stackTrace`, `scopes`, `variables`, `stepIn`,
 `next`, `stepBack`, `disassemble`, `continue`, `pause`. `initialize` answers
-with capabilities, and one of them is `supportsStepBack: true`, which is a fair
-summary of what Phase 6 bought. The button was the easy half; the runtime being
-able to answer yes was the work. Three requests are Pip's own and wear a `pip/`
-prefix, because the ribbon, the heap grid and the status line are things this
-page draws that VS Code would draw for itself.
+with capabilities, and one of them is `supportsStepBack: true`. Adding the
+button was the easy half. Making the runtime able to answer yes was the work.
+Three requests are Pip's own and wear a `pip/` prefix, because the ribbon, the
+heap grid and the status line are things this page draws that VS Code would
+draw for itself.
 
 `scopes` returns no bindings. It returns a name and an opaque number per scope,
 and `variables` redeems one number for its contents. The extra round trip looks
@@ -404,8 +403,8 @@ loop on the other side that hands its event loop a turn every two thousand
 steps, so a `pause` sent mid-run is actually seen. `while (true) { i = i + 1 }`
 is a program you can start and stop rather than a tab you have to close.
 
-Three files. `web/protocol.js` is the adapter and knows nothing about threads,
-`web/worker.js` is the nine lines that give it a mailbox, and `web/client.js`
-is the page's half. The tests wire a client to an adapter in one thread over a
+`web/protocol.js` is the adapter and knows nothing about threads,
+`web/worker.js` is the nine lines that give it a mailbox, and `web/client.js` is
+the page's half. The tests wire a client to an adapter in one thread over a
 pair of ports that clone what they carry, which is why "nothing live crosses
 the boundary" is an assertion rather than an intention.

@@ -37,7 +37,7 @@ export const HEAP_GROWTH = 2;
  *
  * `addr` is the slot. `gen` is how many times that slot has been handed out,
  * which is what stops a freed handle from quietly aliasing whatever moved in
- * afterwards — reuse a slot without it and a stale pointer starts reading a
+ * afterwards. Reuse a slot without it and a stale pointer starts reading a
  * live object of some other shape. The check costs one comparison and turns
  * the worst class of collector bug into an exception with an address on it.
  */
@@ -61,12 +61,12 @@ export class Handle {
  * What a slot holds. Three kinds, which is every kind of thing in Pip that
  * is bigger than a machine word:
  *
- * - `str` — an immutable string. Immutable, and still allocated: `"x" + i`
+ * - `str`: an immutable string. Immutable, and still allocated: `"x" + i`
  *   in a loop is where a program makes garbage fastest.
- * - `fn` — anything callable. A closure carries the address of the scope it
+ * - `fn`: anything callable. A closure carries the address of the scope it
  *   captured, which is the one edge in here a collector has to follow; a
  *   builtin carries none.
- * - `env` — a scope. `parent` duplicates the link `Env` already holds, in
+ * - `env`: a scope. `parent` duplicates the link `Env` already holds, in
  *   handle form, because a collector tracing the chain needs to reach the
  *   *cell*, not the JS object. Both links are written in one place, so they
  *   cannot drift apart.
@@ -79,7 +79,7 @@ export class Handle {
 
 /**
  * A pointer that no longer points anywhere: either the slot was freed, or it
- * was freed and handed out again to something else. Not a Pip error — no
+ * was freed and handed out again to something else. Not a Pip error, since no
  * program can cause one. It means the VM or the collector has a bug, and the
  * address is the first thing you would want to know about it.
  */
@@ -96,8 +96,8 @@ export class HeapError extends Error {
 }
 
 /**
- * The VM's own storage, and — once Phase 7b lands a collector — the thing it
- * can reclaim from. An array of slots with a generation counter each.
+ * The VM's own storage, and, once Phase 7b lands a collector, the thing it can
+ * reclaim from. An array of slots with a generation counter each.
  *
  * The point of moving off JS references is not to be faster. It is that a
  * reference you cannot see is a reference you cannot trace: with values
@@ -105,7 +105,7 @@ export class HeapError extends Error {
  * so "what is still reachable" becomes a question something can walk and a
  * UI can draw. JS keeps owning the bytes; we own the graph.
  *
- * The tree-walker has no heap and needs none — it keeps plain JS values, JS
+ * The tree-walker has no heap and needs none. It keeps plain JS values, JS
  * collects them, and the contrast is half of what makes the VM's heap worth
  * looking at.
  */
@@ -201,7 +201,7 @@ export class Heap {
    * journal. For cells that belong to the *code* rather than to the step that
    * happened to reach them first: a constant, a builtin, the scope chain the
    * machine was loaded with. Stepping backwards past the instruction that
-   * first touched a constant must not take the constant away — the pool still
+   * first touched a constant must not take the constant away. The pool still
    * points at it, and the next time round it would be reading a free slot.
    * @param {Cell} cell
    * @returns {Handle}
@@ -292,7 +292,7 @@ export class Heap {
    * comes back untouched, so the VM can call this on any slot without first
    * asking what is in it.
    *
-   * This is one half of the discipline the VM runs on — *read at the point of
+   * This is one half of the discipline the VM runs on: *read at the point of
    * use*. `values.js` never sees a handle, which is why the operators, the
    * error wording and the tree-walker's semantics all stayed exactly as they
    * were when the heap arrived underneath them.
@@ -316,7 +316,7 @@ export class Heap {
    * be passed again without allocating a second cell for it.
    * @param {Value} value
    * @param {boolean} [permanent] whether the cell belongs to the code rather
-   *   than to the instruction storing it — see `place`
+   *   than to the instruction storing it, see `place`
    * @returns {Value} a word: the value itself, or the address of its cell
    */
   write(value, permanent = false) {
@@ -341,8 +341,8 @@ export class Heap {
 
   /**
    * The scope a handle points at. The VM holds handles; everything that
-   * *reads* a scope — name resolution, the inspector, a stack trace — wants
-   * the `Env` itself, and gets it here.
+   * *reads* a scope (name resolution, the inspector, a stack trace) wants the
+   * `Env` itself, and gets it here.
    * @param {Handle} handle
    * @returns {Env}
    */
@@ -359,8 +359,8 @@ export class Heap {
   }
 
   /**
-   * A fresh scope enclosed by `parent` — what a block entry and a call both
-   * push. The `Env` link and the cell link are both set here, in this one
+   * A fresh scope enclosed by `parent`, which is what a block entry and a
+   * call both push. The `Env` link and the cell link are both set here, in this one
    * expression, which is the only reason keeping two copies of the same edge
    * is defensible.
    * @param {Handle} parent
@@ -371,8 +371,8 @@ export class Heap {
   }
 
   /**
-   * Take a scope chain built outside the VM — the builtins, and the scope a
-   * program's own top-level bindings go in — and move it into the heap.
+   * Take a scope chain built outside the VM (the builtins, and the scope a
+   * program's own top-level bindings go in) and move it into the heap.
    *
    * The `Env` objects are kept, not copied, so anything else holding one
    * still holds the same scope. What changes is what is *in* them: every
@@ -398,7 +398,7 @@ export class Heap {
 
   /**
    * Constant `index` of `chunk`, allocated on first use and shared after
-   * that. Only constants that `CONST` pushes come through here — the ones
+   * that. Only constants that `CONST` pushes come through here. The ones
    * `GET`, `SET` and `DEFINE` name are variable names rather than values,
    * and a name is not something a Pip program can hold.
    * @param {Chunk} chunk
